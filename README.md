@@ -21,17 +21,28 @@ Then it emails one summary per run via Postmark and writes full logs to disk.
 
 ## Requirements
 
-- Python ≥ 3.11
+- [uv](https://docs.astral.sh/uv/) (it provisions Python ≥ 3.11 automatically)
 - `claude`, `git`, and `gh` on `PATH`; `gh` authenticated (`gh auth login`)
 - Each project must be a git repo whose `origin` is on github.com
 - A Postmark server token (for email)
 
 ## Install
 
+ptt is managed with [uv](https://docs.astral.sh/uv/). To work from a clone:
+
 ```bash
-pip install -e .        # or: pipx install .
-# no install? everything also runs as: python -m ptt ...
+uv sync                 # creates .venv and installs ptt + dev deps
+uv run ptt --help       # run any command via `uv run`
 ```
+
+To put `ptt` on your `PATH` as a standalone command (recommended for scheduled use):
+
+```bash
+uv tool install .       # installs `ptt` into ~/.local/bin
+```
+
+The commands below are written as `ptt …`; if you didn't `uv tool install`, prefix
+them with `uv run` (e.g. `uv run ptt validate`).
 
 ## Configure
 
@@ -100,8 +111,11 @@ ptt uninstall code-audit
 ### Scheduling (systemd user timers)
 
 `ptt install <routine>` writes `~/.config/systemd/user/ptt-<routine>.{service,timer}`
-and enables the timer. For timers to fire **while you're logged out**, enable lingering
-once (the only step that needs sudo):
+and enables the timer. The unit's `ExecStart` uses whatever `ptt` resolves to at install
+time — `~/.local/bin/ptt` if you ran `uv tool install`, or the project's
+`.venv/bin/ptt` if you ran `uv run ptt install` — both stable, absolute paths.
+For timers to fire **while you're logged out**, enable lingering once (the only step
+that needs sudo):
 
 ```bash
 sudo loginctl enable-linger "$USER"
@@ -126,5 +140,6 @@ The Postmark token is read only from the environment and never logged or emailed
 ## Development
 
 ```bash
-python -m pytest        # full suite; no network, no real Claude/GitHub (all faked)
+uv sync                 # install deps into .venv
+uv run pytest           # full suite; no network, no real Claude/GitHub (all faked)
 ```
