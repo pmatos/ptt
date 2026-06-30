@@ -60,6 +60,13 @@ def run_routine(routine: m.Routine, global_cfg: m.GlobalConfig, *,
             results.append(_error_result(name, repo, pdir, f"runner error: {e}",
                                          git_ops.branch_name(routine.name, run_id)))
 
+    # tidy the now-empty per-run worktree parent (worktrees themselves are
+    # already removed); leave it in place if anything failed to clean up.
+    try:
+        (routine.work_dir / run_id).rmdir()
+    except OSError:
+        pass
+
     return _finish(routine, run_id, run_dir, started, results, global_cfg)
 
 

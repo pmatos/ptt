@@ -37,9 +37,10 @@ def test_run_pr_is_verified_and_cleaned(fake_bin, github_repo, tmp_path, monkeyp
     assert (Path(p.log_dir) / "result.json").is_file()
     assert (Path(p.log_dir) / "claude.stdout.jsonl").is_file()
     assert (Path(p.log_dir) / "git.log").is_file()
-    # worktree cleaned up
+    # worktree cleaned up, including the now-empty run-id parent dir
     dest = r.work_dir / run.run_id / p.name
     assert not dest.exists()
+    assert not (r.work_dir / run.run_id).exists()
 
 
 def test_run_error_sets_overall_error_and_cleans(fake_bin, github_repo, tmp_path, monkeypatch):

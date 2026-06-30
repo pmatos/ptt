@@ -35,16 +35,14 @@ def _git(work, *args, check=True):
                           check=check, capture_output=True, text=True)
 
 
-@pytest.fixture
-def github_repo(tmp_path):
+def _make_github_repo(work: Path) -> Path:
     """A real local git repo whose origin *looks* like github.com but is wired
     via insteadOf to a local bare repo, so is_github_repo() passes AND
     fetch/worktree actually work offline."""
-    bare = tmp_path / "remote.git"
+    bare = work.parent / (work.name + "-remote.git")
     subprocess.run(["git", "init", "--bare", "-b", "main", str(bare)],
                    check=True, capture_output=True)
-    work = tmp_path / "work"
-    work.mkdir()
+    work.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-b", "main", str(work)],
                    check=True, capture_output=True)
     _git(work, "config", "user.email", "t@example.com")
@@ -57,3 +55,14 @@ def github_repo(tmp_path):
     _git(work, "commit", "-m", "init")
     _git(work, "push", "origin", "main")
     return work
+
+
+@pytest.fixture
+def github_repo(tmp_path):
+    return _make_github_repo(tmp_path / "work")
+
+
+@pytest.fixture
+def github_repo_factory():
+    """Factory to build several github-style repos (e.g. with colliding basenames)."""
+    return _make_github_repo
