@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ptt"
+version = "0.1.0"
+description = "prompt-then-that: run Markdown prompts through Claude Code on git projects on a schedule"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+ptt = "ptt.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["ptt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

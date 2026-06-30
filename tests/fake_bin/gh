@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""Fake `gh` for ptt tests.
+
+`pr list` / `issue list` return JSON whose contents depend on marker files in
+cwd (dropped by the fake `claude`), so a pre/post snapshot shows a delta only
+when the fake claude "created" something. `auth status` succeeds (exit 0).
+"""
+import json
+import pathlib
+import sys
+
+args = sys.argv[1:]
+cwd = pathlib.Path.cwd()
+
+
+def has(marker):
+    return (cwd / marker).exists()
+
+
+if args[:2] == ["pr", "list"]:
+    prs = []
+    if has(".fake-pr"):
+        prs = [{"number": 1, "url": "https://github.com/fake/repo/pull/1",
+                "headRefName": "ptt/x"}]
+    print(json.dumps(prs))
+elif args[:2] == ["issue", "list"]:
+    issues = [{"number": 5, "url": "https://github.com/fake/repo/issues/5",
+               "state": "CLOSED" if has(".fake-issue-closed") else "OPEN"}]
+    if has(".fake-issue-open"):
+        issues.append({"number": 6,
+                       "url": "https://github.com/fake/repo/issues/6",
+                       "state": "OPEN"})
+    print(json.dumps(issues))
+elif args[:2] == ["auth", "status"]:
+    sys.stderr.write("github.com\n  Logged in to github.com as fake\n")
+    sys.exit(0)
+else:
+    sys.exit(0)

@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""Fake `claude` for ptt tests.
+
+Behaviour switched via $PTT_FAKE_MODE: none|pr|unverified|issue_opened|
+issue_closed|error|timeout. Reads (and discards) the prompt on stdin, emits a
+line of canned stream-json, and writes `.ptt-result.json` in cwd. For the `pr`
+and `issue_*` modes it also drops marker files that the fake `gh` reads, so the
+before/after gh snapshot shows a real delta.
+"""
+import json
+import os
+import pathlib
+import sys
+import time
+
+sys.stdin.read()  # consume the prompt
+mode = os.environ.get("PTT_FAKE_MODE", "none")
+cwd = pathlib.Path.cwd()
+print(json.dumps({"type": "system", "subtype": "fake_claude", "mode": mode}))
+
+
+def result(d):
+    (cwd / ".ptt-result.json").write_text(json.dumps(d))
+
+
+if mode == "pr":
+    (cwd / ".fake-pr").write_text("1")
+    result({"status": "success", "action": "pr",
+            "url": "https://github.com/fake/repo/pull/1",
+            "title": "Add config loader", "summary": "Implemented the change."})
+elif mode == "unverified":
+    # Claims a PR but drops no marker, so gh cannot confirm it.
+    result({"status": "success", "action": "pr",
+            "url": "https://github.com/fake/repo/pull/2",
+            "title": "Phantom PR", "summary": "Claims a PR that gh won't see."})
+elif mode == "issue_opened":
+    (cwd / ".fake-issue-open").write_text("6")
+    result({"status": "success", "action": "issue_opened",
+            "url": "https://github.com/fake/repo/issues/6",
+            "title": "Found a bug", "summary": "Opened an issue."})
+elif mode == "issue_closed":
+    (cwd / ".fake-issue-closed").write_text("5")
+    result({"status": "success", "action": "issue_closed",
+            "url": "https://github.com/fake/repo/issues/5",
+            "title": "Fixed it", "summary": "Closed an issue."})
+elif mode == "none":
+    result({"status": "no_action", "action": "none", "url": None,
+            "title": "Nothing to do", "summary": "No impactful changes found."})
+elif mode == "error":
+    sys.stderr.write("fake claude: boom\n")
+    sys.exit(3)
+elif mode == "timeout":
+    time.sleep(30)
+
+sys.exit(0)
