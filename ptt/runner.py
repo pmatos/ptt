@@ -112,8 +112,8 @@ def _finish(routine, run_id, run_dir, started, results, global_cfg) -> m.RunResu
     run = m.RunResult(routine.name, run_id, started, _now_iso(), overall,
                       results, str(run_dir))
     logstore.write_run_json(run_dir, run)
-    token = os.environ.get(global_cfg.email.postmark_token_env)
-    notify.notify(run, global_cfg.email, token, run_dir)
+    password = os.environ.get(global_cfg.email.smtp_password_env)
+    notify.notify(run, global_cfg.email, password, run_dir)
     return run
 
 

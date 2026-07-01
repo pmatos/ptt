@@ -1,16 +1,13 @@
-"""Postmark email notification: decide whether to send (policy), render the
-summary, and POST it. The token comes only from the caller and is never written
-into the rendered message."""
+"""SMTP email notification: decide whether to send (policy), render the summary,
+and hand it to any SMTP server. The password comes only from the caller and is
+never written into the rendered message."""
 from __future__ import annotations
 
-import json
-import urllib.error
-import urllib.request
+import smtplib
+from email.message import EmailMessage
 from pathlib import Path
 
 from ptt import models as m
-
-POSTMARK_URL = "https://api.postmarkapp.com/email"
 
 
 class NotifyError(Exception):
@@ -55,38 +52,35 @@ def build_html(text: str) -> str:
 
 
 def send(subject: str, text: str, html: str | None,
-         email_cfg: m.EmailConfig, token: str) -> None:
-    payload = {
-        "From": email_cfg.from_addr,
-        "To": email_cfg.to_addr,
-        "Subject": subject,
-        "TextBody": text,
-    }
+         email_cfg: m.EmailConfig, password: str | None) -> None:
+    msg = EmailMessage()
+    msg["From"] = email_cfg.from_addr
+    msg["To"] = email_cfg.to_addr
+    msg["Subject"] = subject
+    msg.set_content(text)
     if html:
-        payload["HtmlBody"] = html
-    req = urllib.request.Request(
-        POSTMARK_URL, data=json.dumps(payload).encode(), method="POST",
-        headers={
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "X-Postmark-Server-Token": token,
-        },
-    )
-    with urllib.request.urlopen(req) as resp:
-        status = getattr(resp, "status", 200)
-        if not (200 <= status < 300):
-            raise NotifyError(f"postmark returned {status}")
+        msg.add_alternative(html, subtype="html")
+    if email_cfg.smtp_security == m.SmtpSecurity.SSL:
+        client = smtplib.SMTP_SSL(email_cfg.smtp_host, email_cfg.smtp_port)
+    else:
+        client = smtplib.SMTP(email_cfg.smtp_host, email_cfg.smtp_port)
+    with client as s:
+        if email_cfg.smtp_security == m.SmtpSecurity.STARTTLS:
+            s.starttls()
+        if email_cfg.smtp_username:
+            s.login(email_cfg.smtp_username, password)
+        s.send_message(msg)
 
 
-def notify(run: m.RunResult, email_cfg: m.EmailConfig, token: str | None,
+def notify(run: m.RunResult, email_cfg: m.EmailConfig, password: str | None,
            run_dir) -> None:
-    """Send per policy; never raises. On repeated failure (or missing token) drop
-    a .email-failed marker in the run dir so the failure is debuggable."""
+    """Send per policy; never raises. On repeated failure (or a missing password)
+    drop a .email-failed marker in the run dir so the failure is debuggable."""
     if not should_send(run, email_cfg.on):
         return
     marker = Path(run_dir) / ".email-failed"
-    if not token:
-        marker.write_text("no postmark token in environment")
+    if email_cfg.smtp_username and not password:
+        marker.write_text(f"no SMTP password in ${email_cfg.smtp_password_env}")
         return
     subject = build_subject(run)
     text = build_text(run)
@@ -94,8 +88,8 @@ def notify(run: m.RunResult, email_cfg: m.EmailConfig, token: str | None,
     last = None
     for _ in range(2):
         try:
-            send(subject, text, html, email_cfg, token)
+            send(subject, text, html, email_cfg, password)
             return
         except Exception as e:  # noqa: BLE001 - email must never crash the run
             last = e
-    marker.write_text(f"postmark send failed: {last}")
+    marker.write_text(f"SMTP send failed: {last}")

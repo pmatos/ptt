@@ -17,7 +17,7 @@ project ptt:
 3. detects the outcome from that file, **cross-checked** against a `gh` PR/issue diff;
 4. removes the worktree (the pushed branch stays on the remote).
 
-Then it emails one summary per run via Postmark and writes full logs to disk.
+Then it emails one summary per run over SMTP (any provider) and writes full logs to disk.
 
 > **New here?** Follow the step-by-step **[tutorial](docs/tutorial.md)** to go from zero
 > to a scheduled routine. The sections below are the quick reference.
@@ -27,7 +27,7 @@ Then it emails one summary per run via Postmark and writes full logs to disk.
 - [uv](https://docs.astral.sh/uv/) (it provisions Python ≥ 3.11 automatically)
 - `claude`, `git`, and `gh` on `PATH`; `gh` authenticated (`gh auth login`)
 - Each project must be a git repo whose `origin` is on github.com
-- A Postmark server token (for email)
+- An SMTP account for email — any provider (Postmark, SES, Gmail, self-hosted)
 
 ## Install
 
@@ -58,7 +58,11 @@ All config lives under `~/.config/ptt/` (respects `XDG_CONFIG_HOME`).
 from = "ptt@yourdomain.com"
 to   = "you@yourdomain.com"
 on   = "always"                 # always | changes | failures
-# postmark_token_env = "PTT_POSTMARK_TOKEN"   # name of the env var (default shown)
+smtp_host     = "smtp.postmarkapp.com"     # any SMTP provider
+smtp_username = "your-postmark-server-token"
+# smtp_security     = "starttls"           # starttls (default) | ssl | none
+# smtp_port         = 587                   # defaults by security: 587 / 465 / 25
+# smtp_password_env = "PTT_SMTP_PASSWORD"   # name of the env var (default shown)
 
 [defaults]
 permission_mode = "bypass"      # bypass | acceptEdits  (see Security)
@@ -82,7 +86,7 @@ projects = ["~/dev/rightkey", "~/dev/foo"]
 Secrets — `~/.config/ptt/env` (chmod 600), loaded by the systemd timer:
 
 ```bash
-PTT_POSTMARK_TOKEN=your-postmark-server-token
+PTT_SMTP_PASSWORD=your-smtp-password-or-token   # Postmark: your Server API token
 ```
 
 ```bash
@@ -105,7 +109,7 @@ ptt run code-audit --force         # run even if disabled
 ptt list                           # routines + enabled state + timers
 ptt logs code-audit                # latest run summary
 ptt logs code-audit --run 20260630T050000Z --project rightkey   # drill in
-ptt test-email                     # verify Postmark works
+ptt test-email                     # verify your SMTP settings work
 
 ptt install code-audit             # create + enable the systemd user timer
 ptt uninstall code-audit
@@ -138,7 +142,7 @@ Unattended runs need Claude to edit files and run `git`/`gh` non-interactively, 
 default `permission_mode = "bypass"` maps to `claude --dangerously-skip-permissions`.
 The blast radius is bounded to a throwaway worktree under `~/.cache/ptt/work`, but
 `git`/`gh` run with **your** credentials — that's intentional (it's how PRs get opened).
-The Postmark token is read only from the environment and never logged or emailed.
+The SMTP password is read only from the environment and never logged or emailed.
 
 ## Development
 

@@ -56,7 +56,7 @@ nothing / failed); keep full logs for debugging."*
 | Claude         | `claude -p` (headless)              | Non-interactive run against a worktree. |
 | Git isolation  | `git worktree`                      | Cheap isolation; reuses local objects; keeps real checkouts clean. |
 | PR/issue I/O   | `gh` CLI                            | Already authenticated; simplest path to PRs/issues. |
-| Email          | Postmark HTTP API via `urllib`      | No third-party deps. |
+| Email          | SMTP via stdlib `smtplib` ¹         | No third-party deps; works with any email service. |
 
 Required external tools on `PATH`: `claude`, `git`, `gh` (authenticated). Python ≥ 3.11
 (for `tomllib`). `ptt validate` checks all of these.
@@ -282,11 +282,19 @@ The reconciled per-project record (status, action, url, title, summary, verified
 source, log paths, durations) is written to `projects/<name>/result.json` and included
 in `run.json`.
 
-## 12. Email summary (Postmark)
+## 12. Email summary (SMTP)
 
-`notify.py` builds a Postmark `email/withTemplate`-free plain `email` payload (subject,
-text body, optional HTML) and POSTs to `https://api.postmarkapp.com/email` with the
-`X-Postmark-Server-Token` header.
+> ¹ **Superseded by [ADR 0001](../adr/0001-send-email-over-smtp.md).** The original
+> design sent through Postmark's HTTP API; ptt now sends over SMTP so it isn't tied to
+> any one email service. The `[email]` config, env-var names, and `notify.py` below
+> reflect the current SMTP design; the historical Postmark-HTTP details are retained
+> only where they explain the migration.
+
+`notify.py` builds a plain `email.message.EmailMessage` (subject, text body, optional
+HTML alternative) and hands it to any SMTP server via stdlib `smtplib` — `smtp_host`,
+`smtp_port`, `smtp_security` (`starttls`/`ssl`/`none`), `smtp_username`, and a password
+read from the env var named by `smtp_password_env`. Postmark is reached like any other
+provider, over its SMTP endpoint.
 
 - **Subject:** `[ptt] <routine> — <n> PR, <m> issue, <k> failed` (counts summarized).
 - **Body (text):** one line per project:

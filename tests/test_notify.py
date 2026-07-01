@@ -1,10 +1,37 @@
-import json
 from pathlib import Path
 
 import pytest
 
 from ptt import notify
 from ptt import models as m
+
+
+def _fake_smtp(record):
+    """A stand-in for smtplib.SMTP / SMTP_SSL that records what send() does."""
+    class _S:
+        def __init__(self, host, port, *a, **k):
+            record["host"] = host
+            record["port"] = port
+            record.setdefault("starttls", 0)
+            record.setdefault("login", None)
+            record.setdefault("sent", [])
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def starttls(self, *a, **k):
+            record["starttls"] += 1
+
+        def login(self, user, password):
+            record["login"] = (user, password)
+
+        def send_message(self, msg):
+            record["sent"].append(msg)
+
+    return _S
 
 
 def _proj(name, status, action, verified=True, url="https://gh/pull/1",
@@ -22,9 +49,11 @@ def _run(projects, status=m.Status.SUCCESS):
                        run_dir="/state/runs/audit/20260630T050000Z")
 
 
-def _email(on):
+def _email(on, security=m.SmtpSecurity.STARTTLS, username="user",
+           host="smtp.example.com", port=587):
     return m.EmailConfig(from_addr="ptt@x.com", to_addr="p@x.com", on=on,
-                         postmark_token_env="PTT_POSTMARK_TOKEN")
+                         smtp_host=host, smtp_port=port, smtp_security=security,
+                         smtp_username=username, smtp_password_env="PTT_SMTP_PASSWORD")
 
 
 def test_should_send_matrix():
@@ -62,35 +91,53 @@ def test_build_text_marks_actions_unverified_and_failures():
     assert "timeout" in text and "/log/bad" in text
 
 
-def test_send_posts_to_postmark_with_token_header(monkeypatch):
-    captured = {}
-
-    class FakeResp:
-        status = 200
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-
-    def fake_urlopen(req, *a, **k):
-        captured["url"] = req.full_url
-        captured["headers"] = req.headers
-        captured["body"] = json.loads(req.data.decode())
-        return FakeResp()
-
-    monkeypatch.setattr(notify.urllib.request, "urlopen", fake_urlopen)
-    notify.send("subj", "body", None, _email(m.EmailOn.ALWAYS), "SECRET-TOKEN")
-    assert captured["url"] == "https://api.postmarkapp.com/email"
-    # urllib title-cases header keys
-    assert captured["headers"]["X-postmark-server-token"] == "SECRET-TOKEN"
-    assert captured["body"]["From"] == "ptt@x.com"
-    assert captured["body"]["Subject"] == "subj"
+def test_send_starttls_logs_in_and_sends(monkeypatch):
+    rec = {}
+    monkeypatch.setattr(notify.smtplib, "SMTP", _fake_smtp(rec))
+    notify.send("subj", "body-text", "<pre>body-text</pre>",
+                _email(m.EmailOn.ALWAYS), "SECRET-PW")
+    assert rec["host"] == "smtp.example.com"
+    assert rec["port"] == 587
+    assert rec["starttls"] == 1
+    assert rec["login"] == ("user", "SECRET-PW")
+    assert len(rec["sent"]) == 1
+    msg = rec["sent"][0]
+    assert msg["From"] == "ptt@x.com"
+    assert msg["To"] == "p@x.com"
+    assert msg["Subject"] == "subj"
+    raw = msg.as_string()
+    assert "body-text" in raw
+    assert "SECRET-PW" not in raw  # the password never rides in the message
 
 
-def test_send_raises_on_http_error(monkeypatch):
-    def boom(req, *a, **k):
-        raise notify.urllib.error.HTTPError(req.full_url, 422, "bad", {}, None)
-    monkeypatch.setattr(notify.urllib.request, "urlopen", boom)
+def test_send_ssl_uses_smtp_ssl_without_starttls(monkeypatch):
+    rec = {}
+    monkeypatch.setattr(notify.smtplib, "SMTP_SSL", _fake_smtp(rec))
+    cfg = _email(m.EmailOn.ALWAYS, security=m.SmtpSecurity.SSL, port=465)
+    notify.send("s", "b", None, cfg, "PW")
+    assert rec["port"] == 465
+    assert rec["starttls"] == 0
+    assert rec["login"] == ("user", "PW")
+    assert len(rec["sent"]) == 1
+
+
+def test_send_none_without_auth_skips_starttls_and_login(monkeypatch):
+    rec = {}
+    monkeypatch.setattr(notify.smtplib, "SMTP", _fake_smtp(rec))
+    cfg = _email(m.EmailOn.ALWAYS, security=m.SmtpSecurity.NONE,
+                 username=None, host="127.0.0.1", port=25)
+    notify.send("s", "b", None, cfg, None)
+    assert rec["starttls"] == 0
+    assert rec["login"] is None
+    assert len(rec["sent"]) == 1
+
+
+def test_send_raises_on_smtp_error(monkeypatch):
+    def boom(*a, **k):
+        raise notify.smtplib.SMTPException("nope")
+    monkeypatch.setattr(notify.smtplib, "SMTP", boom)
     with pytest.raises(Exception):
-        notify.send("s", "b", None, _email(m.EmailOn.ALWAYS), "T")
+        notify.send("s", "b", None, _email(m.EmailOn.ALWAYS), "PW")
 
 
 def test_notify_retries_then_writes_marker(monkeypatch, tmp_path):
@@ -103,6 +150,14 @@ def test_notify_retries_then_writes_marker(monkeypatch, tmp_path):
     notify.notify(run, _email(m.EmailOn.ALWAYS), "T", tmp_path)  # must not raise
     assert calls["n"] == 2
     assert (tmp_path / ".email-failed").is_file()
+
+
+def test_notify_missing_password_writes_marker_naming_env(tmp_path):
+    run = _run([_proj("a", m.Status.SUCCESS, m.Action.PR)])
+    notify.notify(run, _email(m.EmailOn.ALWAYS), None, tmp_path)
+    txt = (tmp_path / ".email-failed").read_text()
+    assert "PTT_SMTP_PASSWORD" in txt
+    assert "postmark" not in txt.lower()
 
 
 def test_notify_skips_when_policy_not_met(monkeypatch, tmp_path):

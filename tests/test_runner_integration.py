@@ -43,9 +43,9 @@ def test_project_filter_picks_correct_same_basename_repo(
 
 def test_email_payload_flags_unverified(fake_bin, github_repo, tmp_path, monkeypatch):
     monkeypatch.setenv("PTT_FAKE_MODE", "unverified")
-    monkeypatch.setenv("PTT_POSTMARK_TOKEN", "tok")
+    monkeypatch.setenv("PTT_SMTP_PASSWORD", "pw")
     captured = {}
     monkeypatch.setattr(notify, "send",
-                        lambda subj, text, html, cfg, token: captured.update(text=text))
+                        lambda subj, text, html, cfg, password: captured.update(text=text))
     runner.run_routine(make_routine(tmp_path, [github_repo]), make_global())
     assert "(unverified)" in captured["text"]

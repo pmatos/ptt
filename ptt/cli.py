@@ -104,8 +104,9 @@ def _cmd_validate(args) -> int:
     try:
         cfg = config.load_global_config()
         check("global config loads", True)
-        token = os.environ.get(cfg.email.postmark_token_env)
-        check(f"postmark token (${cfg.email.postmark_token_env})", bool(token))
+        if cfg.email.smtp_username:
+            pw = os.environ.get(cfg.email.smtp_password_env)
+            check(f"smtp password (${cfg.email.smtp_password_env})", bool(pw))
         for name in config.list_routine_names():
             try:
                 config.load_routine(name, cfg)
@@ -124,9 +125,9 @@ def runner_proc(cmd) -> int:
 
 def _cmd_test_email(args) -> int:
     cfg = config.load_global_config()
-    token = os.environ.get(cfg.email.postmark_token_env)
-    if not token:
-        print(f"error: ${cfg.email.postmark_token_env} is not set", file=sys.stderr)
+    password = os.environ.get(cfg.email.smtp_password_env)
+    if cfg.email.smtp_username and not password:
+        print(f"error: ${cfg.email.smtp_password_env} is not set", file=sys.stderr)
         return 1
     run = m.RunResult(
         routine="test-email", run_id=logstore.new_run_id(),
@@ -134,7 +135,7 @@ def _cmd_test_email(args) -> int:
         projects=[m.ProjectResult(
             name="example", path="/example", status=m.Status.SUCCESS,
             action=m.Action.PR, url="https://github.com/example/pull/1",
-            title="ptt test email", summary="If you got this, Postmark works.",
+            title="ptt test email", summary="If you got this, your SMTP settings work.",
             verified=True, source=m.Source.CLAUDE, reason=None,
             branch="ptt/test/1", duration_s=0.0, log_dir="-")],
         run_dir="-",
@@ -142,7 +143,7 @@ def _cmd_test_email(args) -> int:
     text = notify.build_text(run)
     try:
         notify.send(notify.build_subject(run), text, notify.build_html(text),
-                    cfg.email, token)
+                    cfg.email, password)
     except Exception as e:  # noqa: BLE001
         print(f"failed to send: {e}", file=sys.stderr)
         return 1
@@ -178,7 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
     un.set_defaults(fn=_cmd_uninstall)
 
     sub.add_parser("validate", help="check config + tooling").set_defaults(fn=_cmd_validate)
-    sub.add_parser("test-email", help="send a test Postmark email").set_defaults(fn=_cmd_test_email)
+    sub.add_parser("test-email", help="send a test email").set_defaults(fn=_cmd_test_email)
     return p
 
 

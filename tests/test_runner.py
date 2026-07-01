@@ -6,7 +6,9 @@ from ptt import models as m
 
 def make_global():
     return m.GlobalConfig(
-        email=m.EmailConfig("ptt@x.com", "p@x.com", m.EmailOn.ALWAYS, "PTT_POSTMARK_TOKEN"),
+        email=m.EmailConfig("ptt@x.com", "p@x.com", m.EmailOn.ALWAYS,
+                            "smtp.example.com", 587, m.SmtpSecurity.STARTTLS,
+                            "user", "PTT_SMTP_PASSWORD"),
         defaults=m.Defaults(m.PermissionMode.BYPASS, 30, Path("/tmp/w"), "main"),
     )
 
