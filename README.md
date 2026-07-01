@@ -19,6 +19,9 @@ project ptt:
 
 Then it emails one summary per run via Postmark and writes full logs to disk.
 
+> **New here?** Follow the step-by-step **[tutorial](docs/tutorial.md)** to go from zero
+> to a scheduled routine. The sections below are the quick reference.
+
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/) (it provisions Python ≥ 3.11 automatically)
