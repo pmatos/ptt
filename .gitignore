@@ -17,5 +17,6 @@ htmlcov/
 
 # local tooling artifacts
 .impeccable/
+.ultraplan/
 
 .claude/settings.local.json
