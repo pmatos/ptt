@@ -153,8 +153,8 @@ Validation rules:
 ```toml
 [email]
 postmark_token_env = "PTT_POSTMARK_TOKEN"  # name of the env var holding the token
-from = "ptt@ocmatos.com"
-to   = "p@ocmatos.com"
+from = "ptt@yourdomain.com"
+to   = "you@yourdomain.com"
 on   = "always"                            # "always" | "changes" | "failures"
 
 [defaults]
