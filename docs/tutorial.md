@@ -20,8 +20,10 @@ lets Claude open a PR when it finds something worth doing, and emails you a summ
   gh auth login
   ```
 - **A GitHub project** to point ptt at — a local clone whose `origin` is on github.com.
-- **A Postmark account** with a *server token* and a **verified sender signature** for
-  the address you'll send *from* (Postmark rejects mail from unverified senders).
+- **An email account you can send through over SMTP** — any provider works (Postmark,
+  Amazon SES, Gmail, Fastmail, a self-hosted MTA). You'll need its SMTP host, a username,
+  and a password/token. If the provider verifies senders (Postmark, SES), make sure the
+  address you send *from* is verified.
 
 ## 1. Get ptt
 
@@ -66,9 +68,16 @@ Create `~/.config/ptt/config.toml`:
 
 ```toml
 [email]
-from = "ptt@yourdomain.com"     # must be a verified Postmark sender
+from = "ptt@yourdomain.com"     # a sender your SMTP provider accepts
 to   = "you@yourdomain.com"
 on   = "always"                 # always | changes | failures
+
+# SMTP transport — point these at any provider:
+smtp_host     = "smtp.postmarkapp.com"
+smtp_username = "your-postmark-server-token"
+# smtp_security   = "starttls"          # starttls (default) | ssl | none
+# smtp_port       = 587                 # defaults by security: 587 / 465 / 25
+# smtp_password_env = "PTT_SMTP_PASSWORD"   # name of the env var holding the password
 
 [defaults]
 permission_mode = "bypass"      # see "About permissions" below
@@ -84,24 +93,41 @@ base_branch = "main"
 | `changes`  | at least one project did something (PR/issue) |
 | `failures` | at least one project failed                   |
 
-## 4. Store your Postmark token
+**ptt speaks SMTP and nothing else**, so any provider works — you just change the three
+`smtp_*` values. A few worked examples:
 
-The token is read from an environment variable (named by `postmark_token_env`, default
-`PTT_POSTMARK_TOKEN`). Put it in `~/.config/ptt/env`, which the scheduled timer loads:
+| Provider   | `smtp_host`               | `smtp_username`          | password (in the env var) |
+|------------|---------------------------|--------------------------|---------------------------|
+| Postmark   | `smtp.postmarkapp.com`    | your Server API token    | the *same* Server API token |
+| Amazon SES | `email-smtp.<region>.amazonaws.com` | your SMTP username | your SMTP password        |
+| Gmail      | `smtp.gmail.com`          | your full address        | an app password           |
+
+All three use the default `smtp_security = "starttls"` on port 587. Use `ssl` (port 465)
+for implicit-TLS providers, or `none` (port 25) **only** for a trusted local relay — ptt
+refuses to send a username/password over an unencrypted connection to a remote host.
+
+## 4. Store your SMTP password
+
+The password/token is read from an environment variable (named by `smtp_password_env`,
+default `PTT_SMTP_PASSWORD`) — never from the config file. Put it in `~/.config/ptt/env`,
+which the scheduled timer loads:
 
 ```bash
 mkdir -p ~/.config/ptt
-printf 'PTT_POSTMARK_TOKEN=your-postmark-server-token\n' > ~/.config/ptt/env
+printf 'PTT_SMTP_PASSWORD=your-smtp-password-or-token\n' > ~/.config/ptt/env
 chmod 600 ~/.config/ptt/env
 ```
+
+> **Postmark:** use your Server API token here — it doubles as both the SMTP username
+> (above) and the SMTP password.
 
 For running by hand in your shell, also export it (or `source` the file):
 
 ```bash
-export PTT_POSTMARK_TOKEN=your-postmark-server-token
+export PTT_SMTP_PASSWORD=your-smtp-password-or-token
 ```
 
-The token is only ever read from the environment — it is never written to logs or email.
+The password is only ever read from the environment — it is never written to logs or email.
 
 ## 5. Define the routine
 
@@ -148,7 +174,7 @@ You want all green:
 ✓ gh on PATH
 ✓ gh authenticated
 ✓ global config loads
-✓ postmark token ($PTT_POSTMARK_TOKEN)
+✓ smtp password ($PTT_SMTP_PASSWORD)
 ✓ routine code-audit
 ```
 
@@ -156,15 +182,15 @@ Any `✗` tells you exactly what to fix before scheduling.
 
 ## 7. Send a test email
 
-Confirm Postmark works before relying on it:
+Confirm your SMTP settings work before relying on them:
 
 ```bash
 ptt test-email
 # -> test email sent to you@yourdomain.com
 ```
 
-If it fails, the message shows the Postmark error (common causes: bad token, or the
-`from` address isn't a verified sender).
+If it fails, the message shows the SMTP error (common causes: wrong password/token, a
+`from` address the provider won't accept, or the wrong host/port/security combination).
 
 ## 8. Do a manual run first
 
@@ -262,7 +288,8 @@ unattended).
 | Symptom                              | Likely cause / fix                                                    |
 |--------------------------------------|----------------------------------------------------------------------|
 | `✗ gh authenticated`                 | Run `gh auth login`.                                                  |
-| `✗ postmark token`                   | Set `PTT_POSTMARK_TOKEN` (env + `~/.config/ptt/env`).                 |
+| `✗ smtp password`                    | Set `PTT_SMTP_PASSWORD` (env + `~/.config/ptt/env`).                  |
+| `[email] refuses to send credentials…` | `smtp_security = "none"` with a username only works on a loopback host; use `starttls`/`ssl` for a remote host. |
 | Project shows `not a GitHub repo`    | Its `origin` remote must point at github.com.                         |
 | No email arrived                     | Check `on` policy; look for a `.email-failed` marker in the run dir.  |
 | Action shown as `(unverified)`       | Claude claimed a PR/issue `gh` couldn't confirm — check `git.log`.    |

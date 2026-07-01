@@ -65,17 +65,60 @@ def _enum(cls, value, field):
         raise ConfigError(f"invalid {field} {value!r}; allowed: {allowed}")
 
 
-def load_global_config() -> m.GlobalConfig:
-    data = _load_toml(global_config_path())
-    email = data.get("email", {})
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+_DEFAULT_SMTP_PORT = {
+    m.SmtpSecurity.STARTTLS: 587,
+    m.SmtpSecurity.SSL: 465,
+    m.SmtpSecurity.NONE: 25,
+}
+
+
+_SMTP_MIGRATION_HINT = (
+    "ptt now sends over SMTP, not the Postmark API. Configure [email] with "
+    "smtp_host, smtp_username and smtp_password_env (optionally smtp_security/"
+    "smtp_port). Postmark over SMTP looks like:\n"
+    '  smtp_host = "smtp.postmarkapp.com"\n'
+    '  smtp_username = "<your-postmark-server-token>"\n'
+    '  smtp_password_env = "PTT_SMTP_PASSWORD"   # env var holding that same token'
+)
+
+
+def _email_config(email: dict) -> m.EmailConfig:
     if "from" not in email or "to" not in email:
         raise ConfigError("[email] requires both 'from' and 'to'")
-    email_cfg = m.EmailConfig(
+    if "postmark_token_env" in email:
+        raise ConfigError(f"[email] 'postmark_token_env' is no longer supported. "
+                          f"{_SMTP_MIGRATION_HINT}")
+    if "smtp_host" not in email:
+        raise ConfigError(f"[email] requires 'smtp_host'. {_SMTP_MIGRATION_HINT}")
+    on = _enum(m.EmailOn, email.get("on", "always"), "email.on")
+    security = _enum(m.SmtpSecurity, email.get("smtp_security", "starttls"),
+                     "email.smtp_security")
+    username = email.get("smtp_username")
+    if (security == m.SmtpSecurity.NONE and username
+            and email["smtp_host"] not in _LOOPBACK_HOSTS):
+        raise ConfigError(
+            '[email] refuses to send credentials over an unencrypted connection: '
+            'smtp_security = "none" with smtp_username set is only allowed when '
+            'smtp_host is loopback (localhost/127.0.0.1/::1). Use "starttls" or '
+            '"ssl" to reach a remote host.')
+    port = int(email.get("smtp_port", _DEFAULT_SMTP_PORT[security]))
+    return m.EmailConfig(
         from_addr=email["from"],
         to_addr=email["to"],
-        on=_enum(m.EmailOn, email.get("on", "always"), "email.on"),
-        postmark_token_env=email.get("postmark_token_env", "PTT_POSTMARK_TOKEN"),
+        on=on,
+        smtp_host=email["smtp_host"],
+        smtp_port=port,
+        smtp_security=security,
+        smtp_username=username,
+        smtp_password_env=email.get("smtp_password_env", "PTT_SMTP_PASSWORD"),
     )
+
+
+def load_global_config() -> m.GlobalConfig:
+    data = _load_toml(global_config_path())
+    email_cfg = _email_config(data.get("email", {}))
     d = data.get("defaults", {})
     work_dir = (Path(d["work_dir"]).expanduser() if "work_dir" in d
                 else cache_home() / "work")

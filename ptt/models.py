@@ -28,6 +28,12 @@ class EmailOn(StrEnum):
     FAILURES = "failures"
 
 
+class SmtpSecurity(StrEnum):
+    STARTTLS = "starttls"
+    SSL = "ssl"
+    NONE = "none"
+
+
 class PermissionMode(StrEnum):
     BYPASS = "bypass"
     ACCEPT_EDITS = "acceptEdits"
@@ -43,7 +49,11 @@ class EmailConfig:
     from_addr: str
     to_addr: str
     on: EmailOn
-    postmark_token_env: str
+    smtp_host: str
+    smtp_port: int
+    smtp_security: SmtpSecurity
+    smtp_username: str | None
+    smtp_password_env: str
 
 
 @dataclass
