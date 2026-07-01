@@ -17,3 +17,5 @@ htmlcov/
 
 # local tooling artifacts
 .impeccable/
+
+.claude/settings.local.json
