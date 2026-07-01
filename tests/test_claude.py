@@ -6,9 +6,16 @@ from ptt import models as m
 
 def _routine(permission_mode=m.PermissionMode.BYPASS, model=None):
     return m.Routine(
-        name="audit", description="", enabled=True, prompt=Path("/x/p.md"),
-        schedule="Mon..Fri 05:00", projects=[Path("/x/a")], base_branch="main",
-        permission_mode=permission_mode, model=model, timeout_minutes=30,
+        name="audit",
+        description="",
+        enabled=True,
+        prompt=Path("/x/p.md"),
+        schedule="Mon..Fri 05:00",
+        projects=[Path("/x/a")],
+        base_branch="main",
+        permission_mode=permission_mode,
+        model=model,
+        timeout_minutes=30,
         work_dir=Path("/x/work"),
     )
 
@@ -58,8 +65,9 @@ def test_run_claude_error_returns_exit_code(fake_bin, tmp_path, monkeypatch):
     monkeypatch.setenv("PTT_FAKE_MODE", "error")
     wt = tmp_path / "wt"
     wt.mkdir()
-    rc, timed_out = claude.run_claude(_routine(), wt, "prompt",
-                                      tmp_path / "o", tmp_path / "e", timeout_s=10)
+    rc, timed_out = claude.run_claude(
+        _routine(), wt, "prompt", tmp_path / "o", tmp_path / "e", timeout_s=10
+    )
     assert rc == 3 and timed_out is False
 
 
@@ -67,6 +75,7 @@ def test_run_claude_timeout_is_killed(fake_bin, tmp_path, monkeypatch):
     monkeypatch.setenv("PTT_FAKE_MODE", "timeout")
     wt = tmp_path / "wt"
     wt.mkdir()
-    rc, timed_out = claude.run_claude(_routine(), wt, "prompt",
-                                      tmp_path / "o", tmp_path / "e", timeout_s=0.5)
+    rc, timed_out = claude.run_claude(
+        _routine(), wt, "prompt", tmp_path / "o", tmp_path / "e", timeout_s=0.5
+    )
     assert rc == 124 and timed_out is True

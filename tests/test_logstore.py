@@ -48,9 +48,13 @@ def test_git_log_append(tmp_xdg):
 def test_write_run_json_roundtrip(tmp_xdg):
     _, run_dir = logstore.make_run_dir("audit", "20260630T080000Z")
     run = m.RunResult(
-        routine="audit", run_id="20260630T080000Z",
-        started_at="s", ended_at="e", overall_status=m.Status.SUCCESS,
-        projects=[], run_dir=str(run_dir),
+        routine="audit",
+        run_id="20260630T080000Z",
+        started_at="s",
+        ended_at="e",
+        overall_status=m.Status.SUCCESS,
+        projects=[],
+        run_dir=str(run_dir),
     )
     logstore.write_run_json(run_dir, run)
     data = json.loads((run_dir / "run.json").read_text())

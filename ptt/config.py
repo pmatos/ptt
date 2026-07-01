@@ -1,6 +1,7 @@
 """Load and validate ptt configuration: the global config and per-routine TOML
 files under the XDG config dir. Repo existence is intentionally NOT checked here
 (only at run time) so editing config never requires the projects to be present."""
+
 from __future__ import annotations
 
 import os
@@ -88,21 +89,28 @@ def _email_config(email: dict) -> m.EmailConfig:
     if "from" not in email or "to" not in email:
         raise ConfigError("[email] requires both 'from' and 'to'")
     if "postmark_token_env" in email:
-        raise ConfigError(f"[email] 'postmark_token_env' is no longer supported. "
-                          f"{_SMTP_MIGRATION_HINT}")
+        raise ConfigError(
+            f"[email] 'postmark_token_env' is no longer supported. "
+            f"{_SMTP_MIGRATION_HINT}"
+        )
     if "smtp_host" not in email:
         raise ConfigError(f"[email] requires 'smtp_host'. {_SMTP_MIGRATION_HINT}")
     on = _enum(m.EmailOn, email.get("on", "always"), "email.on")
-    security = _enum(m.SmtpSecurity, email.get("smtp_security", "starttls"),
-                     "email.smtp_security")
+    security = _enum(
+        m.SmtpSecurity, email.get("smtp_security", "starttls"), "email.smtp_security"
+    )
     username = email.get("smtp_username")
-    if (security == m.SmtpSecurity.NONE and username
-            and email["smtp_host"] not in _LOOPBACK_HOSTS):
+    if (
+        security == m.SmtpSecurity.NONE
+        and username
+        and email["smtp_host"] not in _LOOPBACK_HOSTS
+    ):
         raise ConfigError(
-            '[email] refuses to send credentials over an unencrypted connection: '
+            "[email] refuses to send credentials over an unencrypted connection: "
             'smtp_security = "none" with smtp_username set is only allowed when '
             'smtp_host is loopback (localhost/127.0.0.1/::1). Use "starttls" or '
-            '"ssl" to reach a remote host.')
+            '"ssl" to reach a remote host.'
+        )
     port = int(email.get("smtp_port", _DEFAULT_SMTP_PORT[security]))
     return m.EmailConfig(
         from_addr=email["from"],
@@ -120,12 +128,15 @@ def load_global_config() -> m.GlobalConfig:
     data = _load_toml(global_config_path())
     email_cfg = _email_config(data.get("email", {}))
     d = data.get("defaults", {})
-    work_dir = (Path(d["work_dir"]).expanduser() if "work_dir" in d
-                else cache_home() / "work")
+    work_dir = (
+        Path(d["work_dir"]).expanduser() if "work_dir" in d else cache_home() / "work"
+    )
     defaults = m.Defaults(
-        permission_mode=_enum(m.PermissionMode,
-                              d.get("permission_mode", "bypass"),
-                              "defaults.permission_mode"),
+        permission_mode=_enum(
+            m.PermissionMode,
+            d.get("permission_mode", "bypass"),
+            "defaults.permission_mode",
+        ),
         timeout_minutes=int(d.get("timeout_minutes", 30)),
         work_dir=work_dir,
         base_branch=d.get("base_branch", "main"),
@@ -140,9 +151,11 @@ def load_routine(name: str, global_cfg: m.GlobalConfig) -> m.Routine:
 
     rname = data.get("name")
     if rname != name:
-        raise ConfigError(f"routine 'name' ({rname!r}) must equal filename stem ({name!r})")
-    if not _NAME_RE.match(rname):
-        raise ConfigError(f"routine name {rname!r} must match {_NAME_RE.pattern}")
+        raise ConfigError(
+            f"routine 'name' ({rname!r}) must equal filename stem ({name!r})"
+        )
+    if not _NAME_RE.match(name):
+        raise ConfigError(f"routine name {name!r} must match {_NAME_RE.pattern}")
 
     if "prompt" not in data:
         raise ConfigError(f"routine {name!r} missing 'prompt'")
@@ -159,20 +172,25 @@ def load_routine(name: str, global_cfg: m.GlobalConfig) -> m.Routine:
     if not schedule:
         raise ConfigError(f"routine {name!r} missing 'schedule'")
 
-    work_dir = (Path(str(data["work_dir"])).expanduser() if "work_dir" in data
-                else dflt.work_dir)
+    work_dir = (
+        Path(str(data["work_dir"])).expanduser()
+        if "work_dir" in data
+        else dflt.work_dir
+    )
 
     return m.Routine(
-        name=rname,
+        name=name,
         description=data.get("description", ""),
         enabled=bool(data.get("enabled", True)),
         prompt=prompt,
         schedule=str(schedule),
         projects=projects,
         base_branch=data.get("base_branch", dflt.base_branch),
-        permission_mode=_enum(m.PermissionMode,
-                              data.get("permission_mode", str(dflt.permission_mode)),
-                              "permission_mode"),
+        permission_mode=_enum(
+            m.PermissionMode,
+            data.get("permission_mode", str(dflt.permission_mode)),
+            "permission_mode",
+        ),
         model=data.get("model"),
         timeout_minutes=int(data.get("timeout_minutes", dflt.timeout_minutes)),
         work_dir=work_dir,

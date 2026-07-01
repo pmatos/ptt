@@ -6,9 +6,16 @@ from ptt import models as m
 
 def make_global():
     return m.GlobalConfig(
-        email=m.EmailConfig("ptt@x.com", "p@x.com", m.EmailOn.ALWAYS,
-                            "smtp.example.com", 587, m.SmtpSecurity.STARTTLS,
-                            "user", "PTT_SMTP_PASSWORD"),
+        email=m.EmailConfig(
+            "ptt@x.com",
+            "p@x.com",
+            m.EmailOn.ALWAYS,
+            "smtp.example.com",
+            587,
+            m.SmtpSecurity.STARTTLS,
+            "user",
+            "PTT_SMTP_PASSWORD",
+        ),
         defaults=m.Defaults(m.PermissionMode.BYPASS, 30, Path("/tmp/w"), "main"),
     )
 
@@ -18,10 +25,17 @@ def make_routine(tmp_path, projects, name="audit", enabled=True, timeout=30):
     if not prompt.exists():
         prompt.write_text("Do the audit.")
     return m.Routine(
-        name=name, description="", enabled=enabled, prompt=prompt,
-        schedule="Mon..Fri 05:00", projects=projects, base_branch="main",
-        permission_mode=m.PermissionMode.BYPASS, model=None,
-        timeout_minutes=timeout, work_dir=tmp_path / "ptt-work",
+        name=name,
+        description="",
+        enabled=enabled,
+        prompt=prompt,
+        schedule="Mon..Fri 05:00",
+        projects=projects,
+        base_branch="main",
+        permission_mode=m.PermissionMode.BYPASS,
+        model=None,
+        timeout_minutes=timeout,
+        work_dir=tmp_path / "ptt-work",
     )
 
 
@@ -45,7 +59,9 @@ def test_run_pr_is_verified_and_cleaned(fake_bin, github_repo, tmp_path, monkeyp
     assert not (r.work_dir / run.run_id).exists()
 
 
-def test_run_error_sets_overall_error_and_cleans(fake_bin, github_repo, tmp_path, monkeypatch):
+def test_run_error_sets_overall_error_and_cleans(
+    fake_bin, github_repo, tmp_path, monkeypatch
+):
     monkeypatch.setenv("PTT_FAKE_MODE", "error")
     r = make_routine(tmp_path, [github_repo])
     run = runner.run_routine(r, make_global())

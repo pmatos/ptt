@@ -10,7 +10,9 @@ def test_run_captures_stdout_and_returncode():
 
 
 def test_run_nonzero_returncode_captured():
-    r = proc.run([sys.executable, "-c", "import sys; sys.stderr.write('boom'); sys.exit(2)"])
+    r = proc.run(
+        [sys.executable, "-c", "import sys; sys.stderr.write('boom'); sys.exit(2)"]
+    )
     assert r.returncode == 2
     assert "boom" in r.stderr
 
@@ -28,9 +30,12 @@ def test_run_appends_to_log(tmp_path):
 def test_run_timeout_returns_124():
     r = proc.run([sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.3)
     assert r.returncode == 124
+    assert "timed out after" in r.stderr
 
 
 def test_run_passes_stdin():
-    r = proc.run([sys.executable, "-c", "import sys; sys.stdout.write(sys.stdin.read())"],
-                 input="echoed")
+    r = proc.run(
+        [sys.executable, "-c", "import sys; sys.stdout.write(sys.stdin.read())"],
+        input="echoed",
+    )
     assert r.stdout == "echoed"

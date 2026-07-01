@@ -1,6 +1,7 @@
 """Generate, install, and remove systemd *user* timers for routines (§14).
 All systemctl/systemd-analyze calls go through proc.run; if those tools are
 absent we raise a clear ScheduleError rather than a raw non-zero."""
+
 from __future__ import annotations
 
 import getpass
@@ -53,8 +54,10 @@ def render_timer(routine_name: str, schedule: str) -> str:
 
 def linger_note() -> str:
     user = getpass.getuser()
-    return (f"One-time setup (needs sudo) so timers fire while logged out:\n"
-            f"  sudo loginctl enable-linger {user}")
+    return (
+        f"One-time setup (needs sudo) so timers fire while logged out:\n"
+        f"  sudo loginctl enable-linger {user}"
+    )
 
 
 def _require(tool: str) -> None:
@@ -65,7 +68,9 @@ def _require(tool: str) -> None:
 def _systemctl(*args: str, check: bool = True) -> proc.Completed:
     r = proc.run(["systemctl", "--user", *args])
     if check and r.returncode != 0:
-        raise ScheduleError(f"systemctl --user {' '.join(args)} failed: {r.stderr.strip()}")
+        raise ScheduleError(
+            f"systemctl --user {' '.join(args)} failed: {r.stderr.strip()}"
+        )
     return r
 
 
@@ -83,7 +88,9 @@ def install(routine: m.Routine) -> str:
     d.mkdir(parents=True, exist_ok=True)
     cmd = ptt_command()
     (d / f"ptt-{routine.name}.service").write_text(render_service(routine.name, cmd))
-    (d / f"ptt-{routine.name}.timer").write_text(render_timer(routine.name, routine.schedule))
+    (d / f"ptt-{routine.name}.timer").write_text(
+        render_timer(routine.name, routine.schedule)
+    )
     _systemctl("daemon-reload")
     _systemctl("enable", "--now", f"ptt-{routine.name}.timer")
     return linger_note()

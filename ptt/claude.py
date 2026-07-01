@@ -1,6 +1,7 @@
 """Invoke `claude -p` headless against a worktree. Builds the effective prompt
 (routine prompt + a fixed result-reporting footer) and the argv, and runs it in
 its own process group so a timeout can kill the whole tree."""
+
 from __future__ import annotations
 
 import os
@@ -44,17 +45,27 @@ def build_argv(routine: m.Routine) -> list[str]:
     return argv
 
 
-def run_claude(routine: m.Routine, worktree: Path, prompt_text: str,
-               stdout_path: Path, stderr_path: Path,
-               timeout_s: float) -> tuple[int, bool]:
+def run_claude(
+    routine: m.Routine,
+    worktree: Path,
+    prompt_text: str,
+    stdout_path: Path,
+    stderr_path: Path,
+    timeout_s: float,
+) -> tuple[int, bool]:
     """Returns (exit_code, timed_out). On timeout the whole process group is
     terminated and exit_code is 124."""
     argv = build_argv(routine)
     full_prompt = build_prompt(prompt_text)
     with open(stdout_path, "w") as out, open(stderr_path, "w") as err:
         p = subprocess.Popen(
-            argv, cwd=str(worktree), stdin=subprocess.PIPE,
-            stdout=out, stderr=err, text=True, start_new_session=True,
+            argv,
+            cwd=str(worktree),
+            stdin=subprocess.PIPE,
+            stdout=out,
+            stderr=err,
+            text=True,
+            start_new_session=True,
         )
         try:
             p.communicate(input=full_prompt, timeout=timeout_s)

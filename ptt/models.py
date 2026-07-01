@@ -1,6 +1,7 @@
 """Shared data types for ptt: config + run-result dataclasses and the enums
 they use. Kept dependency-free so every other module can import it without
 cycles."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -88,6 +89,7 @@ class Routine:
 @dataclass
 class Outcome:
     """What Claude *claimed* it did (parsed from .ptt-result.json)."""
+
     status: Status
     action: Action
     url: str | None

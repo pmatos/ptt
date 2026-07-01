@@ -31,8 +31,9 @@ def fake_bin(monkeypatch):
 
 
 def _git(work, *args, check=True):
-    return subprocess.run(["git", "-C", str(work), *args],
-                          check=check, capture_output=True, text=True)
+    return subprocess.run(
+        ["git", "-C", str(work), *args], check=check, capture_output=True, text=True
+    )
 
 
 def _make_github_repo(work: Path) -> Path:
@@ -40,11 +41,15 @@ def _make_github_repo(work: Path) -> Path:
     via insteadOf to a local bare repo, so is_github_repo() passes AND
     fetch/worktree actually work offline."""
     bare = work.parent / (work.name + "-remote.git")
-    subprocess.run(["git", "init", "--bare", "-b", "main", str(bare)],
-                   check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "--bare", "-b", "main", str(bare)],
+        check=True,
+        capture_output=True,
+    )
     work.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "-b", "main", str(work)],
-                   check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "main", str(work)], check=True, capture_output=True
+    )
     _git(work, "config", "user.email", "t@example.com")
     _git(work, "config", "user.name", "Tester")
     fake_url = "https://github.com/fake/repo.git"

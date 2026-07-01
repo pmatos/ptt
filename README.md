@@ -1,5 +1,7 @@
 # ptt — prompt-then-that
 
+[![CI](https://github.com/pmatos/ptt/actions/workflows/ci.yml/badge.svg)](https://github.com/pmatos/ptt/actions/workflows/ci.yml)
+
 Run a Markdown prompt through [Claude Code](https://claude.com/claude-code) against
 one or more git projects on a schedule, let Claude open PRs/issues via `gh`, and get
 an email summary of what happened. Local, single-user, self-hosted — the DIY analogue
@@ -149,4 +151,10 @@ The SMTP password is read only from the environment and never logged or emailed.
 ```bash
 uv sync                 # install deps into .venv
 uv run pytest           # full suite; no network, no real Claude/GitHub (all faked)
+uv run ty check         # type-check
+uv run ruff check       # lint
+uv run ruff format      # format
 ```
+
+CI (`.github/workflows/ci.yml`) runs the test suite on Python 3.11 and 3.13 and the
+`ty` / `ruff` checks on every push to `main` and every pull request.

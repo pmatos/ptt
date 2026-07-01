@@ -2,6 +2,7 @@
 Captures stdout/stderr as text, optionally tees the invocation to a log file,
 and turns a timeout into a 124 return code (rather than raising). claude.py does
 NOT use this — its streaming/process-group needs are handled separately."""
+
 from __future__ import annotations
 
 import shlex
@@ -17,19 +18,30 @@ class Completed:
     stderr: str
 
 
-def run(cmd: list[str], *, cwd=None, timeout: float | None = None,
-        env=None, input: str | None = None,
-        log_path: Path | None = None) -> Completed:
+def run(
+    cmd: list[str],
+    *,
+    cwd=None,
+    timeout: float | None = None,
+    env=None,
+    input: str | None = None,
+    log_path: Path | None = None,
+) -> Completed:
     try:
         cp = subprocess.run(
-            cmd, cwd=cwd, env=env, input=input, timeout=timeout,
-            capture_output=True, text=True,
+            cmd,
+            cwd=cwd,
+            env=env,
+            input=input,
+            timeout=timeout,
+            capture_output=True,
+            text=True,
         )
         result = Completed(cp.returncode, cp.stdout, cp.stderr)
     except subprocess.TimeoutExpired as e:
-        out = e.stdout or ""
-        err = (e.stderr or "") + f"\n[ptt] timed out after {timeout}s"
-        result = Completed(124, _as_text(out), _as_text(err))
+        out = _as_text(e.stdout or "")
+        err = _as_text(e.stderr or "") + f"\n[ptt] timed out after {timeout}s"
+        result = Completed(124, out, err)
 
     if log_path is not None:
         with Path(log_path).open("a") as fh:

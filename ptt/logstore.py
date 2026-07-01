@@ -1,5 +1,6 @@
 """Run/log directory layout and writers. Owns the on-disk shape under
 $XDG_STATE_HOME/ptt/runs/<routine>/<run-id>/ described in the spec (§6)."""
+
 from __future__ import annotations
 
 import hashlib
