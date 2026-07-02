@@ -176,7 +176,9 @@ projects = [
 ```
 
 Ephemeral clones land under `work_dir` (default `~/.cache/ptt/work`) and are removed after
-each run. Private repos work as long as `git`/`gh` already have credentials for them.
+each run. Private repos work as long as `git`/`gh` already have credentials for them. To run
+just one of the projects, `ptt run <routine> --project <owner/repo>` selects a remote by its
+`owner/repo` slug (a full URL or a local path works too).
 
 The `schedule` uses systemd's `OnCalendar` syntax. A few examples:
 

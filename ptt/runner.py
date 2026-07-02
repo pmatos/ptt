@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ptt import claude, git_ops, logstore, notify, outcomes
+from ptt import claude, git_ops, logstore, notify, outcomes, projects
 from ptt import models as m
 
 
@@ -101,12 +101,14 @@ def run_routine(
 def _project_matches(spec: m.ProjectSpec, sel: str) -> bool:
     if sel in (spec.raw, spec.name, spec.location):
         return True
-    if not spec.is_remote:
-        try:
-            return Path(spec.location).resolve() == Path(sel).expanduser().resolve()
-        except OSError:
-            return False
-    return False
+    if spec.is_remote:
+        # a URL-configured remote is still targetable by its owner/repo slug,
+        # which is what the CLI advertises `--project` accepts.
+        return projects.slug_from_url(spec.location) == sel
+    try:
+        return Path(spec.location).resolve() == Path(sel).expanduser().resolve()
+    except OSError:
+        return False
 
 
 def _run_one_project(routine, spec, run_id, pdir, prompt_text, name):

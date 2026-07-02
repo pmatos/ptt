@@ -42,6 +42,15 @@ def _name_from_url(url: str) -> str:
     return _strip_git(url.rstrip("/").split("/")[-1].split(":")[-1])
 
 
+def slug_from_url(url: str) -> str | None:
+    """The `owner/repo` slug of a remote URL (for `--project` matching), or None.
+    Handles `https://…/owner/repo(.git)`, `ssh://…/owner/repo.git`, and the scp
+    form `git@github.com:owner/repo.git`."""
+    body = _strip_git(re.sub(r"^(https?://|ssh://|git@)", "", url).rstrip("/"))
+    parts = [p for p in re.split(r"[/:]", body) if p]
+    return "/".join(parts[-2:]) if len(parts) >= 2 else None
+
+
 def _safe_name(name: str, path: Path | None = None) -> str:
     """A non-empty, non-traversing directory name for the run's log/worktree dirs.
     A degenerate name (``""``/``.``/``..`` — e.g. from `projects = ["."]` or a

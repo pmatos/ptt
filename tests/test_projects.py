@@ -89,3 +89,12 @@ def test_url_with_degenerate_last_segment_falls_back_to_token():
         s = projects.parse(bad)
         assert s.is_remote is True
         assert s.name == "project"
+
+
+def test_slug_from_url_handles_all_remote_forms():
+    assert projects.slug_from_url("https://github.com/acme/app.git") == "acme/app"
+    assert projects.slug_from_url("https://github.com/acme/app") == "acme/app"
+    assert projects.slug_from_url("https://github.com/acme/app/") == "acme/app"
+    assert projects.slug_from_url("git@github.com:acme/app.git") == "acme/app"
+    assert projects.slug_from_url("ssh://git@github.com/acme/app.git") == "acme/app"
+    assert projects.slug_from_url("nonsense") is None

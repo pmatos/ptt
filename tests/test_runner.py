@@ -87,6 +87,19 @@ def test_run_remote_clone_pr_and_cleaned(
     assert not (r.work_dir / run.run_id).exists()
 
 
+def test_project_matches_remote_url_by_owner_repo_slug():
+    spec = m.ProjectSpec(
+        raw="https://github.com/acme/app.git",
+        is_remote=True,
+        location="https://github.com/acme/app.git",
+        name="app",
+    )
+    assert runner._project_matches(spec, "acme/app")  # advertised owner/repo
+    assert runner._project_matches(spec, "app")  # basename still works
+    assert runner._project_matches(spec, "https://github.com/acme/app.git")  # exact URL
+    assert not runner._project_matches(spec, "other/app")
+
+
 def test_run_remote_commit_only_is_error_and_cleaned(
     fake_bin, remote_github_repo, tmp_path, monkeypatch
 ):
