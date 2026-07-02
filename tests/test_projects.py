@@ -57,3 +57,26 @@ def test_relative_multi_segment_path_is_local():
     assert s.is_remote is False
     assert s.name == "a"
     assert s.location == str(Path("./dev/a").expanduser())
+
+
+def test_dot_path_gets_nonempty_resolved_name(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    s = projects.parse(".")
+    assert s.is_remote is False
+    assert s.name not in ("", "..")
+    assert s.name == Path.cwd().name  # recovered the real directory basename
+
+
+def test_dotdot_path_does_not_become_a_traversal_name(monkeypatch, tmp_path):
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    monkeypatch.chdir(sub)
+    s = projects.parse("..")
+    assert s.name not in ("", "..")
+    assert s.name == Path.cwd().parent.name  # parent's basename, not literal ".."
+
+
+def test_root_path_falls_back_to_project_token():
+    s = projects.parse("/")
+    assert s.is_remote is False
+    assert s.name == "project"

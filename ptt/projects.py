@@ -1,7 +1,10 @@
 """Classify a routine's project entry as either a local checkout or a remote
-GitHub repo to be cloned ephemerally. Purely syntactic (no filesystem or network
-access) so config loading stays side-effect free — a `owner/repo` shorthand or a
-git URL is remote; anything else is treated as a local path."""
+GitHub repo to be cloned ephemerally. Syntactic and side-effect free for ordinary
+entries (no network access) — a `owner/repo` shorthand or a git URL is remote;
+anything else is a local path. The one exception is a degenerate local path (`.`,
+`..`, `/`), whose basename is empty or `..`; that case is resolved once against
+the cwd to recover a real, non-empty directory name for the run's log/worktree
+dirs (see `name` handling below)."""
 
 from __future__ import annotations
 
@@ -27,7 +30,13 @@ def parse(raw: str) -> m.ProjectSpec:
             raw=raw, is_remote=True, location=url, name=_strip_git(s.split("/")[1])
         )
     path = Path(s).expanduser()
-    return m.ProjectSpec(raw=raw, is_remote=False, location=str(path), name=path.name)
+    name = path.name
+    if name in ("", ".."):
+        # `.`/`/` give an empty basename and `..`/`foo/..` give a literal `..`;
+        # either would corrupt (or escape) the run's log/worktree dir layout, so
+        # resolve to a real basename, falling back to a fixed token for the root.
+        name = path.resolve().name or "project"
+    return m.ProjectSpec(raw=raw, is_remote=False, location=str(path), name=name)
 
 
 def _name_from_url(url: str) -> str:
