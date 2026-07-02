@@ -10,8 +10,8 @@ import shutil
 import sys
 from pathlib import Path
 
-from ptt import proc
 from ptt import models as m
+from ptt import proc
 
 
 class ScheduleError(Exception):

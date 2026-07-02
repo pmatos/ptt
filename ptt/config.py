@@ -62,9 +62,9 @@ def _load_toml(path: Path) -> dict:
 def _enum(cls, value, field):
     try:
         return cls(value)
-    except ValueError:
+    except ValueError as err:
         allowed = ", ".join(str(e) for e in cls)
-        raise ConfigError(f"invalid {field} {value!r}; allowed: {allowed}")
+        raise ConfigError(f"invalid {field} {value!r}; allowed: {allowed}") from err
 
 
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}

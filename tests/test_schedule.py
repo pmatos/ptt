@@ -2,9 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from ptt import schedule
-from ptt import proc
 from ptt import models as m
+from ptt import proc, schedule
 
 
 def _routine(name="audit", schedule_str="Mon..Fri 05:00"):

@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Runtime deps are zero, so the Actions ecosystem is the main supply-chain
+  # surface — keep the SHA-pinned actions current.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+  # Dev tooling (pytest, ruff, ty, hypothesis, pytest-cov) in the uv dev group.
+  - package-ecosystem: uv
+    directory: "/"
+    schedule:
+      interval: weekly

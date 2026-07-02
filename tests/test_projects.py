@@ -82,6 +82,14 @@ def test_root_path_falls_back_to_project_token():
     assert s.name == "project"
 
 
+def test_unresolvable_tilde_user_does_not_crash():
+    # `~0` (or any ~user without a home) makes Path.expanduser() raise RuntimeError;
+    # parse must degrade to a literal local path instead of aborting the run.
+    s = projects.parse("~0")
+    assert s.is_remote is False
+    assert s.name == "~0"
+
+
 def test_url_with_degenerate_last_segment_falls_back_to_token():
     # a mistyped URL must never yield "" / "." / ".." as the name, or the runner's
     # dest = work_dir/<run_id>/<name> would collapse to (and rmtree) its parent.

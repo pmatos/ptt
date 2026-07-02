@@ -167,11 +167,20 @@ The SMTP password is read only from the environment and never logged or emailed.
 
 ```bash
 uv sync                 # install deps into .venv
-uv run pytest           # full suite; no network, no real Claude/GitHub (all faked)
+uv run pytest           # full suite (example + Hypothesis); fails under 90% coverage
 uv run ty check         # type-check
-uv run ruff check       # lint
+uv run ruff check       # lint (E/F/I/UP/B/SIM/S/RUF — incl. flake8-bandit security)
 uv run ruff format      # format
 ```
 
-CI (`.github/workflows/ci.yml`) runs the test suite on Python 3.11 and 3.13 and the
-`ty` / `ruff` checks on every push to `main` and every pull request.
+`pytest` enforces a coverage gate (`--cov-fail-under=90`, `pytest-cov`) and includes
+[Hypothesis](https://hypothesis.readthedocs.io/) property tests for the pure
+parse/normalize/reconcile seams. A committed `.claude/settings.json` runs `ruff` + `ty`
+after each edit and `pytest` on stop, mirroring CI so an agent gets the same feedback
+in-loop (your personal `.claude/settings.local.json` stays gitignored).
+
+CI (`.github/workflows/ci.yml`) runs the test suite on Python 3.11 and 3.13, the
+`ty` / `ruff` checks, and workflow-security linting ([zizmor](https://docs.zizmor.sh/) +
+[actionlint](https://github.com/rhysd/actionlint)) on every push to `main` and every pull
+request; superseded runs are cancelled. Actions are SHA-pinned and kept current by
+Dependabot (`.github/dependabot.yml`).

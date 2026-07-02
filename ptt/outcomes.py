@@ -7,8 +7,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ptt import proc
 from ptt import models as m
+from ptt import proc
 
 
 def gh_snapshot(worktree: Path, log_path: Path) -> tuple[dict, bool]:

@@ -1,7 +1,7 @@
 import json
 
-from ptt import outcomes
 from ptt import models as m
+from ptt import outcomes
 
 
 def snap(prs=None, issues=None):
@@ -154,7 +154,7 @@ def test_gh_snapshot_command_failure_sets_ok_false(monkeypatch, tmp_path):
     monkeypatch.setattr(
         outcomes.proc, "run", lambda *a, **k: outcomes.proc.Completed(1, "", "fail")
     )
-    snapshot, ok = outcomes.gh_snapshot(tmp_path, tmp_path / "g.log")
+    _snapshot, ok = outcomes.gh_snapshot(tmp_path, tmp_path / "g.log")
     assert ok is False
 
 

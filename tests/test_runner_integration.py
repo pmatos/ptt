@@ -3,7 +3,7 @@ colliding project basenames, and the rendered email payload)."""
 
 from pathlib import Path
 
-from ptt import runner, logstore, notify
+from ptt import logstore, notify, runner
 from tests.test_runner import make_global, make_routine
 
 
