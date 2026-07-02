@@ -59,7 +59,15 @@ def read_result_file(worktree: Path) -> m.Outcome | None:
 
 
 def reconcile(
-    claimed, pre, post, pre_ok, post_ok, claude_rc, timed_out, stderr_tail: str = ""
+    claimed,
+    pre,
+    post,
+    pre_ok,
+    post_ok,
+    claude_rc,
+    timed_out,
+    stderr_tail: str = "",
+    ephemeral: bool = False,
 ) -> dict:
     if timed_out:
         return _err(m.Action.NONE, "timeout")
@@ -102,6 +110,15 @@ def reconcile(
     # action none / commit: trust the claim unless gh observed something else
     if observed:
         return _from_observed(observed)
+    if ephemeral and claimed.action == m.Action.COMMIT:
+        # A remote project runs in a throwaway clone that is deleted after the run.
+        # An unpushed commit would vanish with it, so a commit-only claim must not
+        # be reported as success (unlike a local worktree, whose branch persists).
+        return _err(
+            m.Action.COMMIT,
+            "commit was not pushed before the ephemeral clone was removed, so the "
+            "change is lost; open a PR (push) for remote projects",
+        )
     return _from_claim(claimed, verified=True, reason=None)
 
 

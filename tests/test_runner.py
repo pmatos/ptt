@@ -87,6 +87,31 @@ def test_run_remote_clone_pr_and_cleaned(
     assert not (r.work_dir / run.run_id).exists()
 
 
+def test_run_remote_commit_only_is_error_and_cleaned(
+    fake_bin, remote_github_repo, tmp_path, monkeypatch
+):
+    # A remote run that commits but never pushes: the ephemeral clone is deleted,
+    # so the commit is lost and the outcome must be an error, not a success.
+    monkeypatch.setenv("PTT_FAKE_MODE", "commit")
+    r = make_routine(tmp_path, [proj.parse(remote_github_repo)])
+    run = runner.run_routine(r, make_global())
+    p = run.projects[0]
+    assert p.status == m.Status.ERROR
+    assert "not pushed" in (p.reason or "")
+    assert not (r.work_dir / run.run_id).exists()  # clone still cleaned up
+
+
+def test_run_local_commit_only_is_success(fake_bin, github_repo, tmp_path, monkeypatch):
+    # A local run keeps its worktree branch in the source repo, so a commit-only
+    # outcome remains a verified success.
+    monkeypatch.setenv("PTT_FAKE_MODE", "commit")
+    r = make_routine(tmp_path, [github_repo])
+    run = runner.run_routine(r, make_global())
+    p = run.projects[0]
+    assert p.status == m.Status.SUCCESS
+    assert p.action == m.Action.COMMIT
+
+
 def test_run_error_sets_overall_error_and_cleans(
     fake_bin, github_repo, tmp_path, monkeypatch
 ):

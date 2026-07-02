@@ -2,7 +2,7 @@
 """Fake `claude` for ptt tests.
 
 Behaviour switched via $PTT_FAKE_MODE: none|pr|unverified|issue_opened|
-issue_closed|error|timeout. Reads (and discards) the prompt on stdin, emits a
+issue_closed|commit|error|timeout. Reads (and discards) the prompt on stdin, emits a
 line of canned stream-json, and writes `.ptt-result.json` in cwd. For the `pr`
 and `issue_*` modes it also drops marker files that the fake `gh` reads, so the
 before/after gh snapshot shows a real delta.
@@ -43,6 +43,10 @@ elif mode == "issue_closed":
     result({"status": "success", "action": "issue_closed",
             "url": "https://github.com/fake/repo/issues/5",
             "title": "Fixed it", "summary": "Closed an issue."})
+elif mode == "commit":
+    # Commits locally but never pushes / opens a PR (drops no gh marker).
+    result({"status": "success", "action": "commit", "url": None,
+            "title": "Local commit", "summary": "Committed without pushing."})
 elif mode == "none":
     result({"status": "no_action", "action": "none", "url": None,
             "title": "Nothing to do", "summary": "No impactful changes found."})

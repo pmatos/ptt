@@ -156,14 +156,14 @@ def _run_remote(routine, spec, pdir, prompt_text, name, branch, dest, log, t0):
             )
         git_ops.create_branch(dest, branch, log)
         return _run_claude_and_reconcile(
-            routine, dest, pdir, prompt_text, name, spec.raw, branch, t0
+            routine, dest, pdir, prompt_text, name, spec.raw, branch, t0, ephemeral=True
         )
     finally:
         git_ops.remove_clone(dest, log)
 
 
 def _run_claude_and_reconcile(
-    routine, dest, pdir, prompt_text, name, path_display, branch, t0
+    routine, dest, pdir, prompt_text, name, path_display, branch, t0, ephemeral=False
 ):
     log = logstore.git_log_path(pdir)
     pre, pre_ok = outcomes.gh_snapshot(dest, log)
@@ -186,6 +186,7 @@ def _run_claude_and_reconcile(
         rc,
         timed_out,
         stderr_tail=_tail(logstore.claude_stderr_path(pdir)),
+        ephemeral=ephemeral,
     )
     result = m.ProjectResult(
         name=name,
