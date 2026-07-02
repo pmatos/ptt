@@ -213,9 +213,7 @@ def build_parser() -> argparse.ArgumentParser:
     un.add_argument("routine")
     un.set_defaults(fn=_cmd_uninstall)
 
-    sub.add_parser("doctor", help="check config + tooling").set_defaults(
-        fn=_cmd_doctor
-    )
+    sub.add_parser("doctor", help="check config + tooling").set_defaults(fn=_cmd_doctor)
     sub.add_parser("test-email", help="send a test email").set_defaults(
         fn=_cmd_test_email
     )
