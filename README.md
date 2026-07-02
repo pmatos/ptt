@@ -47,7 +47,7 @@ uv tool install .       # installs `ptt` into ~/.local/bin
 ```
 
 The commands below are written as `ptt …`; if you didn't `uv tool install`, prefix
-them with `uv run` (e.g. `uv run ptt validate`).
+them with `uv run` (e.g. `uv run ptt doctor`).
 
 ## Configure
 
@@ -98,7 +98,7 @@ chmod 600 ~/.config/ptt/env
 Check everything is wired up:
 
 ```bash
-ptt validate
+ptt doctor
 ```
 
 ## Use

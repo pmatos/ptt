@@ -59,7 +59,7 @@ nothing / failed); keep full logs for debugging."*
 | Email          | SMTP via stdlib `smtplib` ¹         | No third-party deps; works with any email service. |
 
 Required external tools on `PATH`: `claude`, `git`, `gh` (authenticated). Python ≥ 3.11
-(for `tomllib`). `ptt validate` checks all of these.
+(for `tomllib`). `ptt doctor` checks all of these.
 
 ## 5. Repository layout (the tool itself)
 
@@ -174,7 +174,7 @@ base_branch = "main"
 The Postmark **server token** is read from the environment variable named by
 `postmark_token_env`. It is delivered to scheduled runs via
 `EnvironmentFile=~/.config/ptt/env` (a `KEY=value` file, `chmod 600`). The token is
-never written to config, logs, or emails. `ptt validate` fails if the variable is
+never written to config, logs, or emails. `ptt doctor` fails if the variable is
 unset.
 
 ## 8. Run flow
@@ -311,7 +311,7 @@ marker in the run dir, attempt **one** retry, then give up without failing the r
 
 | Failure                     | Handling |
 |-----------------------------|----------|
-| Missing config/token/`gh`/`claude` | `ptt validate` and run preflight fail fast with a clear message, before any work. |
+| Missing config/token/`gh`/`claude` | `ptt doctor` and run preflight fail fast with a clear message, before any work. |
 | Project is not a git/GitHub repo   | That project → `error`; others continue. |
 | `git`/`gh`/worktree command fails  | Captured to `git.log`; project → `error`; worktree still removed. |
 | Claude non-zero exit               | Project → `error` with exit code + last stderr lines. |
@@ -363,7 +363,7 @@ ptt list                                    # routines, enabled state, next run 
 ptt logs <routine> [--run ID] [--project P] # show/tail logs for a run
 ptt install <routine>                       # generate + enable systemd timer/service
 ptt uninstall <routine>                     # disable + remove units
-ptt validate                                # config, gh auth, claude, token present
+ptt doctor                                  # config, gh auth, claude, token present
 ptt test-email                              # send a test Postmark email
 ```
 

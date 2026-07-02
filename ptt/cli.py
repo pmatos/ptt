@@ -90,8 +90,9 @@ def _cmd_uninstall(args) -> int:
     return 0
 
 
-def _cmd_validate(args) -> int:
+def _cmd_doctor(args) -> int:
     ok = True
+    smtp_password_missing = False
 
     def check(label, passed, detail=""):
         nonlocal ok
@@ -108,6 +109,7 @@ def _cmd_validate(args) -> int:
         check("global config loads", True)
         if cfg.email.smtp_username:
             pw = os.environ.get(cfg.email.smtp_password_env)
+            smtp_password_missing = not pw
             check(f"smtp password (${cfg.email.smtp_password_env})", bool(pw))
         for name in config.list_routine_names():
             try:
@@ -117,6 +119,15 @@ def _cmd_validate(args) -> int:
                 check(f"routine {name}", False, str(e))
     except config.ConfigError as e:
         check("global config loads", False, str(e))
+
+    if smtp_password_missing:
+        env_file = config.env_file_path()
+        if env_file.is_file():
+            print(
+                f"\nhint: manual runs don't auto-load {env_file} (only the systemd "
+                f"timer does). Export its secrets into your shell first:\n"
+                f"  set -a; source {env_file}; set +a"
+            )
     return 0 if ok else 1
 
 
@@ -202,9 +213,7 @@ def build_parser() -> argparse.ArgumentParser:
     un.add_argument("routine")
     un.set_defaults(fn=_cmd_uninstall)
 
-    sub.add_parser("validate", help="check config + tooling").set_defaults(
-        fn=_cmd_validate
-    )
+    sub.add_parser("doctor", help="check config + tooling").set_defaults(fn=_cmd_doctor)
     sub.add_parser("test-email", help="send a test email").set_defaults(
         fn=_cmd_test_email
     )
