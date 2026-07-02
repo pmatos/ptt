@@ -18,7 +18,9 @@ deletes it when the run finishes. When it runs, for each project ptt:
    `ptt/<routine>/<run-id>` branch (a local checkout only supplies its `origin` URL — it is
    never run in, fetched into, or branched);
 2. runs `claude -p` headless in that clone, with a footer instructing Claude to do
-   the task, open a PR/issue with `gh` when warranted, and write a `.ptt-result.json`;
+   the task synchronously (it is a one-shot run — no re-invocation, so nothing may
+   be deferred to a background task), open a PR/issue with `gh` when warranted, and
+   write a `.ptt-result.json`;
 3. detects the outcome from that file, **cross-checked** against a `gh` PR/issue diff;
 4. deletes the clone; the pushed branch stays on the remote.
 

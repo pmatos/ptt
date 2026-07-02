@@ -17,8 +17,18 @@ After completing the task above, you are running unattended via `ptt`. When the
 work warrants it, create a branch, commit, push, and open a pull request (or open
 / close an issue) using the `gh` CLI.
 
-Before you end, write a file named `.ptt-result.json` in the repository root: a
-single JSON object describing what you did, with exactly these keys:
+This is a single, one-shot run and you will NOT be re-invoked. Run every
+verification step (tests, builds, suites) synchronously to completion and read
+its result before continuing — never launch long-running work in the background
+and end your turn waiting to be resumed, because anything still running is killed
+and its result is lost when your turn ends. Push the branch and open the PR
+within this turn; an unpushed commit is discarded when the throwaway clone is
+removed.
+
+Always write a file named `.ptt-result.json` in the repository root before you
+end — even if you failed or ran out of time (use status "error" with a summary of
+how far you got) — a single JSON object describing what you did, with exactly
+these keys:
 
   {
     "status":  "success" | "no_action" | "error",
