@@ -1,3 +1,4 @@
+import hashlib
 import os
 import stat
 import subprocess
@@ -10,13 +11,19 @@ FAKE_BIN = Path(__file__).parent / "fake_bin"
 
 @pytest.fixture(autouse=True)
 def tmp_xdg(monkeypatch, tmp_path):
-    """Redirect all XDG dirs into a temp dir so tests never touch real config."""
+    """Redirect all XDG dirs into a temp dir so tests never touch real config, and
+    point GIT_CONFIG_GLOBAL at a scratch gitconfig so per-repo insteadOf rewrites
+    (registered by _make_github_repo) are visible to `git clone` from any cwd —
+    local projects, like remote ones, are cloned rather than run in place."""
     cfg, state, cache = tmp_path / "config", tmp_path / "state", tmp_path / "cache"
     for p in (cfg, state, cache):
         p.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg))
     monkeypatch.setenv("XDG_STATE_HOME", str(state))
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
+    gitconfig = tmp_path / "gitconfig"
+    gitconfig.write_text("[user]\n\temail = t@example.com\n\tname = Tester\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
     return {"config": cfg, "state": state, "cache": cache}
 
 
@@ -37,9 +44,11 @@ def _git(work, *args, check=True):
 
 
 def _make_github_repo(work: Path) -> Path:
-    """A real local git repo whose origin *looks* like github.com but is wired
-    via insteadOf to a local bare repo, so is_github_repo() passes AND
-    fetch/worktree actually work offline."""
+    """A real local git repo whose origin *looks* like github.com but is wired via a
+    *global* insteadOf to a local bare repo, so is_github_repo() passes AND
+    `git clone <origin-url>` resolves to the bare repo offline — from any cwd, since
+    ptt clones the origin fresh (it never runs inside `work`). Each repo gets a unique
+    github URL so several repos don't collide in the shared global gitconfig."""
     bare = work.parent / (work.name + "-remote.git")
     subprocess.run(
         ["git", "init", "--bare", "-b", "main", str(bare)],
@@ -52,9 +61,15 @@ def _make_github_repo(work: Path) -> Path:
     )
     _git(work, "config", "user.email", "t@example.com")
     _git(work, "config", "user.name", "Tester")
-    fake_url = "https://github.com/fake/repo.git"
+    uid = hashlib.sha1(str(bare).encode()).hexdigest()[:8]
+    fake_url = f"https://github.com/fake/{work.name}-{uid}.git"
     _git(work, "remote", "add", "origin", fake_url)
-    _git(work, "config", f"url.{bare.as_uri()}/.insteadOf", fake_url)
+    # Global (not repo-local) so a fresh `git clone <fake_url>` sees the rewrite.
+    subprocess.run(
+        ["git", "config", "--global", f"url.{bare.as_uri()}/.insteadOf", fake_url],
+        check=True,
+        capture_output=True,
+    )
     (work / "README.md").write_text("# fake\n")
     _git(work, "add", "-A")
     _git(work, "commit", "-m", "init")
