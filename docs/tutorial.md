@@ -253,6 +253,13 @@ under `~/.cache/ptt/work` on a fresh `ptt/code-audit/<run-id>` branch. A local c
 never run in, fetched into, or branched (ptt only reads its `origin` URL). If Claude opens
 a PR, the branch is pushed to the remote; the clone is deleted afterward.
 
+Because the clone is deleted the moment Claude's turn ends, each run is **one-shot**: Claude
+is not re-invoked, so the prompt footer tells it to verify synchronously and finish within
+the turn. If Claude backgrounds a long-running check (e.g. a full test suite) and ends its
+turn waiting to be resumed, that work is killed and any local-only commit is discarded — the
+run is then recorded as an error (`no result file`). This is why the footer insists on
+pushing the branch and writing `.ptt-result.json` before ending.
+
 ## 9. Inspect what happened
 
 Everything is logged under `~/.local/state/ptt/runs/<routine>/<run-id>/`:

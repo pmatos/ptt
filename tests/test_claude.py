@@ -31,6 +31,15 @@ def test_build_prompt_appends_result_footer():
         assert field in out
 
 
+def test_build_prompt_warns_against_background_deferral():
+    out = claude.build_prompt("Do the audit.").lower()
+    # The run is one-shot: Claude must not defer to background work expecting a
+    # re-invocation that never comes, and must verify synchronously.
+    assert "re-invoked" in out
+    assert "background" in out
+    assert "synchronously" in out
+
+
 def test_build_argv_bypass_uses_dangerous_flag():
     argv = claude.build_argv(_routine(m.PermissionMode.BYPASS))
     assert argv[0] == "claude"
