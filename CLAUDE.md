@@ -8,6 +8,8 @@ on a schedule, opens PRs/issues via `gh`, and emails summaries via Postmark. Pyt
 
 - Install deps: `uv sync`
 - Run tests: `uv run pytest`
+- Type-check: `uv run ty check`
+- Lint / format: `uv run ruff check` / `uv run ruff format`
 - Run the CLI: `uv run ptt <cmd>`  (or `ptt <cmd>` if installed via `uv tool install .`)
 
 ## Conventions

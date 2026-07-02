@@ -9,9 +9,16 @@ from ptt import models as m
 
 def _routine(name="audit", schedule_str="Mon..Fri 05:00"):
     return m.Routine(
-        name=name, description="", enabled=True, prompt=Path("/x/p.md"),
-        schedule=schedule_str, projects=[Path("/x/a")], base_branch="main",
-        permission_mode=m.PermissionMode.BYPASS, model=None, timeout_minutes=30,
+        name=name,
+        description="",
+        enabled=True,
+        prompt=Path("/x/p.md"),
+        schedule=schedule_str,
+        projects=[Path("/x/a")],
+        base_branch="main",
+        permission_mode=m.PermissionMode.BYPASS,
+        model=None,
+        timeout_minutes=30,
         work_dir=Path("/x/work"),
     )
 
@@ -20,8 +27,9 @@ def _routine(name="audit", schedule_str="Mon..Fri 05:00"):
 def all_ok(monkeypatch):
     """systemctl/systemd-analyze present and every command succeeds."""
     monkeypatch.setattr(schedule.shutil, "which", lambda t: "/usr/bin/" + t)
-    monkeypatch.setattr(schedule.proc, "run",
-                        lambda *a, **k: proc.Completed(0, "ok", ""))
+    monkeypatch.setattr(
+        schedule.proc, "run", lambda *a, **k: proc.Completed(0, "ok", "")
+    )
 
 
 def test_render_service_has_exec_envfile_oneshot():
@@ -48,8 +56,9 @@ def test_install_writes_units_and_reloads(all_ok, tmp_xdg):
 
 def test_validate_schedule_failure_raises(monkeypatch):
     monkeypatch.setattr(schedule.shutil, "which", lambda t: "/usr/bin/" + t)
-    monkeypatch.setattr(schedule.proc, "run",
-                        lambda *a, **k: proc.Completed(1, "", "bad calendar"))
+    monkeypatch.setattr(
+        schedule.proc, "run", lambda *a, **k: proc.Completed(1, "", "bad calendar")
+    )
     with pytest.raises(schedule.ScheduleError):
         schedule.validate_schedule("not a calendar")
 

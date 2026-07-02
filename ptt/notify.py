@@ -1,6 +1,7 @@
 """SMTP email notification: decide whether to send (policy), render the summary,
 and hand it to any SMTP server. The password comes only from the caller and is
 never written into the rendered message."""
+
 from __future__ import annotations
 
 import smtplib
@@ -26,8 +27,11 @@ def should_send(run: m.RunResult, on: m.EmailOn) -> bool:
 
 def build_subject(run: m.RunResult) -> str:
     prs = sum(1 for p in run.projects if p.action == m.Action.PR)
-    issues = sum(1 for p in run.projects
-                 if p.action in (m.Action.ISSUE_OPENED, m.Action.ISSUE_CLOSED))
+    issues = sum(
+        1
+        for p in run.projects
+        if p.action in (m.Action.ISSUE_OPENED, m.Action.ISSUE_CLOSED)
+    )
     failed = sum(1 for p in run.projects if p.status == m.Status.ERROR)
     return f"[ptt] {run.routine} — {prs} PR, {issues} issue, {failed} failed"
 
@@ -36,7 +40,9 @@ def build_text(run: m.RunResult) -> str:
     lines = []
     for p in run.projects:
         if p.status == m.Status.ERROR:
-            lines.append(f"❌ {p.name} — failed ({p.reason or 'error'}) — log: {p.log_dir}")
+            lines.append(
+                f"❌ {p.name} — failed ({p.reason or 'error'}) — log: {p.log_dir}"
+            )
         elif p.action == m.Action.NONE:
             lines.append(f"⏭️  {p.name} — nothing to do")
         else:
@@ -51,8 +57,13 @@ def build_html(text: str) -> str:
     return f"<pre>{text}</pre>"
 
 
-def send(subject: str, text: str, html: str | None,
-         email_cfg: m.EmailConfig, password: str | None) -> None:
+def send(
+    subject: str,
+    text: str,
+    html: str | None,
+    email_cfg: m.EmailConfig,
+    password: str | None,
+) -> None:
     msg = EmailMessage()
     msg["From"] = email_cfg.from_addr
     msg["To"] = email_cfg.to_addr
@@ -67,13 +78,14 @@ def send(subject: str, text: str, html: str | None,
     with client as s:
         if email_cfg.smtp_security == m.SmtpSecurity.STARTTLS:
             s.starttls()
-        if email_cfg.smtp_username:
+        if email_cfg.smtp_username and password is not None:
             s.login(email_cfg.smtp_username, password)
         s.send_message(msg)
 
 
-def notify(run: m.RunResult, email_cfg: m.EmailConfig, password: str | None,
-           run_dir) -> None:
+def notify(
+    run: m.RunResult, email_cfg: m.EmailConfig, password: str | None, run_dir
+) -> None:
     """Send per policy; never raises. On repeated failure (or a missing password)
     drop a .email-failed marker in the run dir so the failure is debuggable."""
     if not should_send(run, email_cfg.on):

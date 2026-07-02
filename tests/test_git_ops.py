@@ -10,8 +10,10 @@ def _git(work, *args):
 
 
 def test_branch_name():
-    assert git_ops.branch_name("code-audit", "20260630T050000Z") == \
-        "ptt/code-audit/20260630T050000Z"
+    assert (
+        git_ops.branch_name("code-audit", "20260630T050000Z")
+        == "ptt/code-audit/20260630T050000Z"
+    )
 
 
 def test_is_github_repo_true(github_repo, tmp_path):
