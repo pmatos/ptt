@@ -121,11 +121,16 @@ chmod 600 ~/.config/ptt/env
 > **Postmark:** use your Server API token here — it doubles as both the SMTP username
 > (above) and the SMTP password.
 
-For running by hand in your shell, also export it (or `source` the file):
+The scheduled timer loads this file automatically, but **manual runs do not** — for
+`ptt run`, `ptt doctor`, or `ptt test-email` from your shell, load it yourself first:
 
 ```bash
-export PTT_SMTP_PASSWORD=your-smtp-password-or-token
+set -a; source ~/.config/ptt/env; set +a
 ```
+
+(`set -a` auto-exports every variable the file assigns; `set +a` turns that back off.)
+If you skip this, `ptt doctor` reports the password as missing and prints this same
+reminder.
 
 The password is only ever read from the environment — it is never written to logs or email.
 
@@ -160,10 +165,10 @@ The `schedule` uses systemd's `OnCalendar` syntax. A few examples:
 
 Check any expression with `systemd-analyze calendar "Mon..Fri 05:00"`.
 
-## 6. Validate the setup
+## 6. Check the setup
 
 ```bash
-ptt validate
+ptt doctor
 ```
 
 You want all green:

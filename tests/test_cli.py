@@ -29,29 +29,63 @@ def test_run_command_end_to_end(
     assert "[ptt] audit" in capsys.readouterr().out
 
 
-def test_validate_ok(fake_bin, github_repo, tmp_xdg, tmp_path, monkeypatch):
+def test_doctor_ok(fake_bin, github_repo, tmp_xdg, tmp_path, monkeypatch):
     write_config(tmp_xdg["config"], github_repo, tmp_path)
     monkeypatch.setenv("PTT_SMTP_PASSWORD", "pw")
-    assert cli.main(["validate"]) == 0
+    assert cli.main(["doctor"]) == 0
 
 
-def test_validate_missing_password_fails(
+def test_doctor_missing_password_fails(
     fake_bin, github_repo, tmp_xdg, tmp_path, monkeypatch
 ):
     write_config(tmp_xdg["config"], github_repo, tmp_path)
     monkeypatch.delenv("PTT_SMTP_PASSWORD", raising=False)
-    assert cli.main(["validate"]) != 0
+    assert cli.main(["doctor"]) != 0
 
 
-def test_validate_reports_smtp_password_line(
+def test_doctor_reports_smtp_password_line(
     fake_bin, github_repo, tmp_xdg, tmp_path, monkeypatch, capsys
 ):
     write_config(tmp_xdg["config"], github_repo, tmp_path)
     monkeypatch.setenv("PTT_SMTP_PASSWORD", "pw")
-    cli.main(["validate"])
+    cli.main(["doctor"])
     out = capsys.readouterr().out
     assert "smtp password ($PTT_SMTP_PASSWORD)" in out
     assert "postmark" not in out.lower()
+
+
+def test_doctor_hints_to_load_env_file_when_password_missing(
+    fake_bin, github_repo, tmp_xdg, tmp_path, monkeypatch, capsys
+):
+    write_config(tmp_xdg["config"], github_repo, tmp_path)
+    env_file = tmp_xdg["config"] / "ptt" / "env"
+    env_file.write_text("PTT_SMTP_PASSWORD=pw\n")
+    monkeypatch.delenv("PTT_SMTP_PASSWORD", raising=False)
+    cli.main(["doctor"])
+    out = capsys.readouterr().out
+    assert str(env_file) in out
+    assert f"source {env_file}" in out
+
+
+def test_doctor_no_env_hint_when_env_file_absent(
+    fake_bin, github_repo, tmp_xdg, tmp_path, monkeypatch, capsys
+):
+    write_config(tmp_xdg["config"], github_repo, tmp_path)
+    monkeypatch.delenv("PTT_SMTP_PASSWORD", raising=False)
+    cli.main(["doctor"])
+    out = capsys.readouterr().out
+    assert "source" not in out
+
+
+def test_doctor_no_env_hint_when_password_present(
+    fake_bin, github_repo, tmp_xdg, tmp_path, monkeypatch, capsys
+):
+    write_config(tmp_xdg["config"], github_repo, tmp_path)
+    (tmp_xdg["config"] / "ptt" / "env").write_text("PTT_SMTP_PASSWORD=pw\n")
+    monkeypatch.setenv("PTT_SMTP_PASSWORD", "pw")
+    cli.main(["doctor"])
+    out = capsys.readouterr().out
+    assert "source" not in out
 
 
 def test_logs_prints_latest_run(tmp_xdg, capsys):
