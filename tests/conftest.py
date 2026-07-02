@@ -71,3 +71,35 @@ def github_repo(tmp_path):
 def github_repo_factory():
     """Factory to build several github-style repos (e.g. with colliding basenames)."""
     return _make_github_repo
+
+
+@pytest.fixture
+def remote_github_repo(tmp_path, monkeypatch):
+    """A bare repo whose github.com clone URL is rewritten (via a *global* insteadOf)
+    to the local bare, so `git clone https://github.com/fake/repo.git` works offline
+    while the stored origin still looks like github.com (is_github_repo passes).
+    Returns the `owner/repo` slug to use as a remote project entry."""
+    bare = tmp_path / "remote.git"
+    subprocess.run(
+        ["git", "init", "--bare", "-b", "main", str(bare)],
+        check=True,
+        capture_output=True,
+    )
+    seed = tmp_path / "seed"
+    subprocess.run(
+        ["git", "init", "-b", "main", str(seed)], check=True, capture_output=True
+    )
+    _git(seed, "config", "user.email", "t@example.com")
+    _git(seed, "config", "user.name", "Tester")
+    (seed / "README.md").write_text("# fake\n")
+    _git(seed, "add", "-A")
+    _git(seed, "commit", "-m", "init")
+    _git(seed, "remote", "add", "origin", str(bare))
+    _git(seed, "push", "origin", "main")
+    gitconfig = tmp_path / "gitconfig"
+    gitconfig.write_text(
+        f'[url "{bare.as_uri()}"]\n\tinsteadOf = https://github.com/fake/repo.git\n'
+        "[user]\n\temail = t@example.com\n\tname = Tester\n"
+    )
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
+    return "fake/repo"

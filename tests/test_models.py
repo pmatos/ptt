@@ -47,19 +47,27 @@ def test_enums_are_plain_string_values():
     assert m.EmailOn.CHANGES == "changes"
 
 
-def test_routine_holds_expanded_paths():
+def test_routine_holds_project_specs():
+    spec = m.ProjectSpec(
+        raw="/home/x/dev/a",
+        is_remote=False,
+        location="/home/x/dev/a",
+        name="a",
+    )
     r = m.Routine(
         name="code-audit",
         description="",
         enabled=True,
         prompt=Path("/home/x/p.md"),
         schedule="Mon..Fri 05:00",
-        projects=[Path("/home/x/dev/a")],
+        projects=[spec],
         base_branch="main",
         permission_mode=m.PermissionMode.BYPASS,
         model=None,
+        effort=None,
         timeout_minutes=30,
         work_dir=Path("/home/x/.cache/ptt/work"),
     )
-    assert r.projects == [Path("/home/x/dev/a")]
+    assert r.projects == [spec]
     assert r.model is None
+    assert r.effort is None

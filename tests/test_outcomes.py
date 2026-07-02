@@ -106,6 +106,36 @@ def test_no_action_claim_kept():
     assert r["verified"] is True
 
 
+def test_local_commit_kept_as_success():
+    # non-ephemeral (local worktree): a commit-only claim stays a verified success
+    # because the worktree's branch persists in the source repo after cleanup.
+    r = outcomes.reconcile(claim(m.Action.COMMIT), snap(), snap(), True, True, 0, False)
+    assert r["status"] == m.Status.SUCCESS
+    assert r["action"] == m.Action.COMMIT
+    assert r["verified"] is True
+
+
+def test_ephemeral_commit_not_pushed_is_error():
+    # remote ephemeral clone: an unpushed commit is discarded on cleanup, so it
+    # must not be reported as success.
+    r = outcomes.reconcile(
+        claim(m.Action.COMMIT), snap(), snap(), True, True, 0, False, ephemeral=True
+    )
+    assert r["status"] == m.Status.ERROR
+    assert "not pushed" in r["reason"]
+
+
+def test_ephemeral_commit_that_opened_pr_uses_gh_observed():
+    # if a remote run did push + open a PR, the gh delta is observed and wins over
+    # the commit claim — success, sourced from gh.
+    r = outcomes.reconcile(
+        claim(m.Action.COMMIT), snap(), PR_POST, True, True, 0, False, ephemeral=True
+    )
+    assert r["action"] == m.Action.PR
+    assert r["source"] == m.Source.GH
+    assert r["status"] == m.Status.SUCCESS
+
+
 # --- gh_snapshot / read_result_file ---
 
 

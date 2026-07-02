@@ -42,6 +42,8 @@ def build_argv(routine: m.Routine) -> list[str]:
         argv += ["--permission-mode", str(routine.permission_mode)]
     if routine.model:
         argv += ["--model", routine.model]
+    if routine.effort:
+        argv += ["--effort", str(routine.effort)]
     return argv
 
 

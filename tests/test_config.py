@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from ptt import config
@@ -166,12 +164,56 @@ def test_load_routine_merges_defaults_and_expands_paths(tmp_xdg, tmp_path, monke
     r = config.load_routine("code-audit", cfg)
     assert r.name == "code-audit"
     assert r.prompt == prompt
-    assert r.projects[0] == tmp_path / "dev" / "a"  # ~ expanded
-    assert r.projects[1] == Path("/abs/b")
+    assert r.projects[0].is_remote is False
+    assert r.projects[0].location == str(tmp_path / "dev" / "a")  # ~ expanded
+    assert r.projects[0].name == "a"
+    assert r.projects[1].location == "/abs/b"
     assert r.permission_mode == m.PermissionMode.BYPASS  # from defaults
     assert r.timeout_minutes == 20  # from defaults
     assert r.base_branch == "main"
     assert r.model is None
+    assert r.effort is None
+
+
+def test_load_routine_parses_effort(tmp_xdg, tmp_path):
+    prompt = tmp_path / "p.md"
+    prompt.write_text("x")
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL)
+    _write_routine(
+        tmp_xdg["config"], "code-audit", _good_routine(prompt) + '\neffort = "high"\n'
+    )
+    cfg = config.load_global_config()
+    r = config.load_routine("code-audit", cfg)
+    assert r.effort == m.Effort.HIGH
+
+
+def test_load_routine_bad_effort_raises(tmp_xdg, tmp_path):
+    prompt = tmp_path / "p.md"
+    prompt.write_text("x")
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL)
+    _write_routine(
+        tmp_xdg["config"],
+        "code-audit",
+        _good_routine(prompt) + '\neffort = "extreme"\n',
+    )
+    cfg = config.load_global_config()
+    with pytest.raises(config.ConfigError):
+        config.load_routine("code-audit", cfg)
+
+
+def test_load_routine_parses_remote_project(tmp_xdg, tmp_path):
+    prompt = tmp_path / "p.md"
+    prompt.write_text("x")
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL)
+    body = _good_routine(prompt).replace(
+        'projects = ["~/dev/a", "/abs/b"]', 'projects = ["pmatos/ptt"]'
+    )
+    _write_routine(tmp_xdg["config"], "code-audit", body)
+    cfg = config.load_global_config()
+    r = config.load_routine("code-audit", cfg)
+    assert r.projects[0].is_remote is True
+    assert r.projects[0].location == "https://github.com/pmatos/ptt.git"
+    assert r.projects[0].name == "ptt"
 
 
 def test_load_routine_name_must_match_filename_stem(tmp_xdg, tmp_path):

@@ -1,6 +1,7 @@
-"""Orchestrate a routine run: fan out over projects (sequentially, isolated in a
-worktree each), reconcile outcomes, write logs, and email a summary. One project
-failing never aborts the others; worktree cleanup is always guaranteed."""
+"""Orchestrate a routine run: fan out over projects (sequentially, each isolated
+in a git worktree for local repos or a throwaway clone for remote ones), reconcile
+outcomes, write logs, and email a summary. One project failing never aborts the
+others; worktree/clone cleanup is always guaranteed."""
 
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ptt import claude, git_ops, logstore, notify, outcomes
+from ptt import claude, git_ops, logstore, notify, outcomes, projects
 from ptt import models as m
 
 
@@ -49,11 +50,10 @@ def run_routine(
             global_cfg,
         )
 
-    projects = [Path(p).expanduser().resolve() for p in routine.projects]
+    specs = list(routine.projects)
     if only_project is not None:
-        target = Path(only_project).expanduser().resolve()
-        projects = [p for p in projects if p == target]
-        if not projects:
+        specs = [s for s in specs if _project_matches(s, only_project)]
+        if not specs:
             return _finish(
                 routine,
                 run_id,
@@ -69,19 +69,19 @@ def run_routine(
 
     taken: set[str] = set()
     results: list[m.ProjectResult] = []
-    for repo in projects:
-        name = logstore.project_dir_name(repo, taken)
+    for spec in specs:
+        name = logstore.project_dir_name(spec.name, spec.raw, taken)
         taken.add(name)
         pdir = logstore.project_dir(run_dir, name)
         try:
             results.append(
-                _run_one_project(routine, repo, run_id, pdir, prompt_text, name)
+                _run_one_project(routine, spec, run_id, pdir, prompt_text, name)
             )
         except Exception as e:  # noqa: BLE001 - isolate per-project failures
             results.append(
                 _error_result(
                     name,
-                    repo,
+                    spec.raw,
                     pdir,
                     f"runner error: {e}",
                     git_ops.branch_name(routine.name, run_id),
@@ -98,58 +98,108 @@ def run_routine(
     return _finish(routine, run_id, run_dir, started, results, global_cfg)
 
 
-def _run_one_project(routine, repo_path, run_id, pdir, prompt_text, name):
+def _project_matches(spec: m.ProjectSpec, sel: str) -> bool:
+    if sel in (spec.raw, spec.name, spec.location):
+        return True
+    if spec.is_remote:
+        # a URL-configured remote is still targetable by its owner/repo slug,
+        # which is what the CLI advertises `--project` accepts.
+        return projects.slug_from_url(spec.location) == sel
+    try:
+        return Path(spec.location).resolve() == Path(sel).expanduser().resolve()
+    except OSError:
+        return False
+
+
+def _run_one_project(routine, spec, run_id, pdir, prompt_text, name):
     t0 = time.monotonic()
     log = logstore.git_log_path(pdir)
     branch = git_ops.branch_name(routine.name, run_id)
+    dest = routine.work_dir / run_id / name
+    if spec.is_remote:
+        return _run_remote(
+            routine, spec, pdir, prompt_text, name, branch, dest, log, t0
+        )
+    return _run_local(routine, spec, pdir, prompt_text, name, branch, dest, log, t0)
 
+
+def _run_local(routine, spec, pdir, prompt_text, name, branch, dest, log, t0):
+    repo_path = Path(spec.location)
     if not git_ops.is_github_repo(repo_path, log):
         return _error_result(
             name,
-            repo_path,
+            spec.location,
             pdir,
             "not a GitHub repo (origin missing or non-github)",
             branch,
             _dur(t0),
         )
-
     git_ops.fetch(repo_path, routine.base_branch, log)
-    dest = routine.work_dir / run_id / name
     try:
         git_ops.add_worktree(repo_path, dest, branch, routine.base_branch, log)
-        pre, pre_ok = outcomes.gh_snapshot(dest, log)
-        rc, timed_out = claude.run_claude(
-            routine,
-            dest,
-            prompt_text,
-            logstore.claude_stdout_path(pdir),
-            logstore.claude_stderr_path(pdir),
-            routine.timeout_minutes * 60,
+        return _run_claude_and_reconcile(
+            routine, dest, pdir, prompt_text, name, str(repo_path), branch, t0
         )
-        claimed = outcomes.read_result_file(dest)
-        post, post_ok = outcomes.gh_snapshot(dest, log)
-        fields = outcomes.reconcile(
-            claimed,
-            pre,
-            post,
-            pre_ok,
-            post_ok,
-            rc,
-            timed_out,
-            stderr_tail=_tail(logstore.claude_stderr_path(pdir)),
-        )
-        result = m.ProjectResult(
-            name=name,
-            path=str(repo_path),
-            branch=branch,
-            duration_s=_dur(t0),
-            log_dir=str(pdir),
-            **fields,
-        )
-        logstore.write_result_json(pdir, result)
-        return result
     finally:
         git_ops.remove_worktree(repo_path, dest, log)
+
+
+def _run_remote(routine, spec, pdir, prompt_text, name, branch, dest, log, t0):
+    try:
+        git_ops.clone(spec.location, dest, routine.base_branch, log)
+        if not git_ops.is_github_repo(dest, log):
+            return _error_result(
+                name,
+                spec.raw,
+                pdir,
+                "not a GitHub repo (origin missing or non-github)",
+                branch,
+                _dur(t0),
+            )
+        git_ops.create_branch(dest, branch, log)
+        return _run_claude_and_reconcile(
+            routine, dest, pdir, prompt_text, name, spec.raw, branch, t0, ephemeral=True
+        )
+    finally:
+        git_ops.remove_clone(dest, log)
+
+
+def _run_claude_and_reconcile(
+    routine, dest, pdir, prompt_text, name, path_display, branch, t0, ephemeral=False
+):
+    log = logstore.git_log_path(pdir)
+    pre, pre_ok = outcomes.gh_snapshot(dest, log)
+    rc, timed_out = claude.run_claude(
+        routine,
+        dest,
+        prompt_text,
+        logstore.claude_stdout_path(pdir),
+        logstore.claude_stderr_path(pdir),
+        routine.timeout_minutes * 60,
+    )
+    claimed = outcomes.read_result_file(dest)
+    post, post_ok = outcomes.gh_snapshot(dest, log)
+    fields = outcomes.reconcile(
+        claimed,
+        pre,
+        post,
+        pre_ok,
+        post_ok,
+        rc,
+        timed_out,
+        stderr_tail=_tail(logstore.claude_stderr_path(pdir)),
+        ephemeral=ephemeral,
+    )
+    result = m.ProjectResult(
+        name=name,
+        path=path_display,
+        branch=branch,
+        duration_s=_dur(t0),
+        log_dir=str(pdir),
+        **fields,
+    )
+    logstore.write_result_json(pdir, result)
+    return result
 
 
 def _finish(routine, run_id, run_dir, started, results, global_cfg) -> m.RunResult:

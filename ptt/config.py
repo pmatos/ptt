@@ -10,6 +10,7 @@ import tomllib
 from pathlib import Path
 
 from ptt import models as m
+from ptt import projects as proj
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
@@ -166,7 +167,7 @@ def load_routine(name: str, global_cfg: m.GlobalConfig) -> m.Routine:
     projects_raw = data.get("projects", [])
     if not projects_raw:
         raise ConfigError(f"routine {name!r} must list at least one project")
-    projects = [Path(str(p)).expanduser() for p in projects_raw]
+    projects = [proj.parse(str(p)) for p in projects_raw]
 
     schedule = data.get("schedule")
     if not schedule:
@@ -192,6 +193,9 @@ def load_routine(name: str, global_cfg: m.GlobalConfig) -> m.Routine:
             "permission_mode",
         ),
         model=data.get("model"),
+        effort=(
+            _enum(m.Effort, data["effort"], "effort") if "effort" in data else None
+        ),
         timeout_minutes=int(data.get("timeout_minutes", dflt.timeout_minutes)),
         work_dir=work_dir,
     )

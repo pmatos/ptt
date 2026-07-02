@@ -4,17 +4,20 @@ from ptt import claude
 from ptt import models as m
 
 
-def _routine(permission_mode=m.PermissionMode.BYPASS, model=None):
+def _routine(permission_mode=m.PermissionMode.BYPASS, model=None, effort=None):
     return m.Routine(
         name="audit",
         description="",
         enabled=True,
         prompt=Path("/x/p.md"),
         schedule="Mon..Fri 05:00",
-        projects=[Path("/x/a")],
+        projects=[
+            m.ProjectSpec(raw="/x/a", is_remote=False, location="/x/a", name="a")
+        ],
         base_branch="main",
         permission_mode=permission_mode,
         model=model,
+        effort=effort,
         timeout_minutes=30,
         work_dir=Path("/x/work"),
     )
@@ -48,6 +51,12 @@ def test_build_argv_model_present_and_absent():
     assert "--model" not in claude.build_argv(_routine(model=None))
     argv = claude.build_argv(_routine(model="claude-opus-4-8"))
     assert "--model" in argv and "claude-opus-4-8" in argv
+
+
+def test_build_argv_effort_present_and_absent():
+    assert "--effort" not in claude.build_argv(_routine(effort=None))
+    argv = claude.build_argv(_routine(effort=m.Effort.HIGH))
+    assert "--effort" in argv and "high" in argv
 
 
 def test_run_claude_success_writes_result_and_logs(fake_bin, tmp_path, monkeypatch):

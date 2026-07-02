@@ -14,10 +14,13 @@ def _routine(name="audit", schedule_str="Mon..Fri 05:00"):
         enabled=True,
         prompt=Path("/x/p.md"),
         schedule=schedule_str,
-        projects=[Path("/x/a")],
+        projects=[
+            m.ProjectSpec(raw="/x/a", is_remote=False, location="/x/a", name="a")
+        ],
         base_branch="main",
         permission_mode=m.PermissionMode.BYPASS,
         model=None,
+        effort=None,
         timeout_minutes=30,
         work_dir=Path("/x/work"),
     )
