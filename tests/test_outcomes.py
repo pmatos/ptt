@@ -106,9 +106,10 @@ def test_no_action_claim_kept():
     assert r["verified"] is True
 
 
-def test_local_commit_kept_as_success():
-    # non-ephemeral (local worktree): a commit-only claim stays a verified success
-    # because the worktree's branch persists in the source repo after cleanup.
+def test_non_ephemeral_commit_kept_as_success():
+    # reconcile contract: with ephemeral=False a commit-only claim stays a verified
+    # success (the checkout would persist). ptt's runner always clones ephemerally
+    # now, so it passes ephemeral=True — but the function still supports both.
     r = outcomes.reconcile(claim(m.Action.COMMIT), snap(), snap(), True, True, 0, False)
     assert r["status"] == m.Status.SUCCESS
     assert r["action"] == m.Action.COMMIT

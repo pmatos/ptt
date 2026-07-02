@@ -1,7 +1,8 @@
-"""Orchestrate a routine run: fan out over projects (sequentially, each isolated
-in a git worktree for local repos or a throwaway clone for remote ones), reconcile
-outcomes, write logs, and email a summary. One project failing never aborts the
-others; worktree/clone cleanup is always guaranteed."""
+"""Orchestrate a routine run: fan out over projects (sequentially, each isolated in
+a throwaway clone of its github.com remote), reconcile outcomes, write logs, and email
+a summary. Local and remote projects are treated the same — a local entry contributes
+only its origin URL (read-only); ptt never runs in, fetches into, or branches the local
+checkout. One project failing never aborts the others; clone cleanup is always guaranteed."""
 
 from __future__ import annotations
 
@@ -88,8 +89,8 @@ def run_routine(
                 )
             )
 
-    # tidy the now-empty per-run worktree parent (worktrees themselves are
-    # already removed); leave it in place if anything failed to clean up.
+    # tidy the now-empty per-run work parent (clones themselves are already
+    # removed); leave it in place if anything failed to clean up.
     try:
         (routine.work_dir / run_id).rmdir()
     except OSError:
@@ -116,49 +117,42 @@ def _run_one_project(routine, spec, run_id, pdir, prompt_text, name):
     log = logstore.git_log_path(pdir)
     branch = git_ops.branch_name(routine.name, run_id)
     dest = routine.work_dir / run_id / name
+
+    # Resolve the github.com clone URL. Remote specs carry it directly; a local
+    # spec contributes only its origin (read-only). Either way ptt runs on a fresh
+    # clone of the remote — the local checkout is never touched.
     if spec.is_remote:
-        return _run_remote(
-            routine, spec, pdir, prompt_text, name, branch, dest, log, t0
-        )
-    return _run_local(routine, spec, pdir, prompt_text, name, branch, dest, log, t0)
+        url = spec.location
+        path_display = spec.raw
+    else:
+        path_display = spec.location
+        url = git_ops.origin_url(Path(spec.location), log)
 
-
-def _run_local(routine, spec, pdir, prompt_text, name, branch, dest, log, t0):
-    repo_path = Path(spec.location)
-    if not git_ops.is_github_repo(repo_path, log):
+    if not url or "github.com" not in url:
         return _error_result(
             name,
-            spec.location,
+            path_display,
             pdir,
             "not a GitHub repo (origin missing or non-github)",
             branch,
             _dur(t0),
         )
-    git_ops.fetch(repo_path, routine.base_branch, log)
-    try:
-        git_ops.add_worktree(repo_path, dest, branch, routine.base_branch, log)
-        return _run_claude_and_reconcile(
-            routine, dest, pdir, prompt_text, name, str(repo_path), branch, t0
-        )
-    finally:
-        git_ops.remove_worktree(repo_path, dest, log)
 
-
-def _run_remote(routine, spec, pdir, prompt_text, name, branch, dest, log, t0):
     try:
-        git_ops.clone(spec.location, dest, routine.base_branch, log)
-        if not git_ops.is_github_repo(dest, log):
-            return _error_result(
-                name,
-                spec.raw,
-                pdir,
-                "not a GitHub repo (origin missing or non-github)",
-                branch,
-                _dur(t0),
-            )
+        git_ops.clone(url, dest, routine.base_branch, log)
         git_ops.create_branch(dest, branch, log)
+        # Every project runs in a throwaway clone that is deleted below, so an
+        # unpushed commit-only outcome is a loss for local and remote alike.
         return _run_claude_and_reconcile(
-            routine, dest, pdir, prompt_text, name, spec.raw, branch, t0, ephemeral=True
+            routine,
+            dest,
+            pdir,
+            prompt_text,
+            name,
+            path_display,
+            branch,
+            t0,
+            ephemeral=True,
         )
     finally:
         git_ops.remove_clone(dest, log)

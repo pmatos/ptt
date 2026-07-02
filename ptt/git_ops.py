@@ -1,5 +1,7 @@
-"""Git operations: validate a project is a GitHub repo, fetch, and manage the
-per-run worktree. All commands are tee'd to the project's git.log via proc.run."""
+"""Git operations: classify a repo's origin, and create/remove the per-run clone.
+ptt runs every project (local or remote) in a fresh throwaway clone of its
+github.com remote — never a worktree of a local checkout — so nothing local is
+fetched into, branched, or mutated. All commands are tee'd to git.log via proc.run."""
 
 from __future__ import annotations
 
@@ -19,57 +21,23 @@ def branch_name(routine: str, run_id: str) -> str:
     return f"ptt/{routine}/{run_id}"
 
 
-def is_github_repo(path: Path, log_path: Path) -> bool:
+def origin_url(path: Path, log_path: Path) -> str | None:
     # config --get returns the *stored* URL (insteadOf rewrites are not applied),
-    # which is what we want to classify the remote.
+    # which is what we want to classify the remote and use as the clone source.
     r = proc.run(
         ["git", "-C", str(path), "config", "--get", f"remote.{REMOTE}.url"],
         log_path=log_path,
     )
-    return r.returncode == 0 and "github.com" in r.stdout
+    return r.stdout.strip() if r.returncode == 0 else None
 
 
-def fetch(path: Path, base_branch: str, log_path: Path) -> None:
-    r = proc.run(
-        ["git", "-C", str(path), "fetch", REMOTE, base_branch], log_path=log_path
-    )
-    if r.returncode != 0:
-        raise GitError(
-            f"git fetch {REMOTE} {base_branch} failed in {path}: {r.stderr.strip()}"
-        )
-
-
-def add_worktree(
-    repo: Path, dest: Path, branch: str, base_ref: str, log_path: Path
-) -> None:
-    r = proc.run(
-        [
-            "git",
-            "-C",
-            str(repo),
-            "worktree",
-            "add",
-            str(dest),
-            "-b",
-            branch,
-            f"{REMOTE}/{base_ref}",
-        ],
-        log_path=log_path,
-    )
-    if r.returncode != 0:
-        raise GitError(f"git worktree add failed for {repo}: {r.stderr.strip()}")
-
-
-def remove_worktree(repo: Path, dest: Path, log_path: Path) -> None:
-    """Best-effort cleanup; never raises (called from a finally block)."""
-    proc.run(
-        ["git", "-C", str(repo), "worktree", "remove", "--force", str(dest)],
-        log_path=log_path,
-    )
+def is_github_repo(path: Path, log_path: Path) -> bool:
+    url = origin_url(path, log_path)
+    return url is not None and "github.com" in url
 
 
 def clone(url: str, dest: Path, base_branch: str, log_path: Path) -> None:
-    """Clone a remote repo into a fresh disposable dir (ephemeral projects)."""
+    """Clone a remote repo into a fresh disposable dir (ephemeral per-run clone)."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     r = proc.run(
         ["git", "clone", "--single-branch", "--branch", base_branch, url, str(dest)],

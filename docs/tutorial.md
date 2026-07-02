@@ -9,7 +9,7 @@ the step-by-step version and is kept in sync with every feature — start here.
 ## What you'll build
 
 A routine called `code-audit` that, every weekday at 05:00, runs a refactoring-audit
-prompt through Claude against one of your GitHub projects (in an isolated worktree),
+prompt through Claude against one of your GitHub projects (in a throwaway clone of the remote),
 lets Claude open a PR when it finds something worth doing, and emails you a summary.
 
 ## 0. Prerequisites
@@ -20,8 +20,9 @@ lets Claude open a PR when it finds something worth doing, and emails you a summ
   gh auth login
   ```
 - **A GitHub project** to point ptt at — either a local clone whose `origin` is on
-  github.com, or a remote repo you name as `owner/repo` (ptt clones it fresh each run and
-  deletes it afterward; private repos just need credentials `git`/`gh` can already use).
+  github.com, or a remote you name as `owner/repo` / a git URL. Either way ptt clones the
+  remote fresh each run and deletes it afterward (a local clone is only read for its
+  `origin`); private repos just need credentials `git`/`gh` can already use.
 - **An email account you can send through over SMTP** — any provider works (Postmark,
   Amazon SES, Gmail, Fastmail, a self-hosted MTA). You'll need its SMTP host, a username,
   and a password/token. If the provider verifies senders (Postmark, SES), make sure the
@@ -164,21 +165,23 @@ unset to use the model's default. Which levels a model accepts varies — Opus t
 `low`/`medium`/`high`/`max`.
 
 **Remote projects** — a `projects` entry doesn't have to be on disk. Alongside local paths
-you can list a GitHub repo and ptt will clone it fresh, run the prompt, and delete the
-clone when the run finishes:
+you can list a GitHub repo directly, and ptt treats it the same as a local one: clone it
+fresh, run the prompt, delete the clone:
 
 ```toml
 projects = [
-  "~/dev/yourproject",                    # local checkout (worktree, never touched)
+  "~/dev/yourproject",                    # local checkout (read-only, only for its origin URL)
   "yourname/some-repo",                   # owner/repo shorthand → cloned + deleted
   "https://github.com/yourname/other",    # full URL also works (also git@… SSH)
 ]
 ```
 
-Ephemeral clones land under `work_dir` (default `~/.cache/ptt/work`) and are removed after
-each run. Private repos work as long as `git`/`gh` already have credentials for them. To run
-just one of the projects, `ptt run <routine> --project <owner/repo>` selects a remote by its
-`owner/repo` slug (a full URL or a local path works too).
+Every entry — local or remote — is run against a fresh clone of its github.com remote under
+`work_dir` (default `~/.cache/ptt/work`), removed after each run. A local checkout is only
+read (for its `origin` URL); ptt never runs in it, fetches into it, or branches it. Private
+repos work as long as `git`/`gh` already have credentials for them. To run just one of the
+projects, `ptt run <routine> --project <owner/repo>` selects a remote by its `owner/repo`
+slug (a full URL or a local path works too).
 
 The `schedule` uses systemd's `OnCalendar` syntax. A few examples:
 
@@ -245,10 +248,10 @@ ptt run code-audit --project ~/dev/yourproject   # just one project
 ptt run code-audit --force                        # run even if disabled
 ```
 
-Each local project runs in a throwaway git worktree under `~/.cache/ptt/work` on a fresh
-`ptt/code-audit/<run-id>` branch, so your real checkout is never touched; a remote project
-is cloned into the same place on that branch instead. If Claude opens a PR, the branch is
-pushed to your remote; the worktree (or ephemeral clone) is cleaned up afterward.
+Every project — local or remote — runs in a **throwaway clone of its github.com remote**
+under `~/.cache/ptt/work` on a fresh `ptt/code-audit/<run-id>` branch. A local checkout is
+never run in, fetched into, or branched (ptt only reads its `origin` URL). If Claude opens
+a PR, the branch is pushed to the remote; the clone is deleted afterward.
 
 ## 9. Inspect what happened
 
@@ -309,7 +312,8 @@ systemctl --user list-timers | grep ptt   # the raw systemd view
 
 Unattended runs can't answer interactive approval prompts, so the default
 `permission_mode = "bypass"` runs Claude with `--dangerously-skip-permissions`. The blast
-radius is limited to the throwaway worktree, but `git`/`gh` act with *your* credentials —
+radius is limited to the throwaway clone (your local checkouts are never run in or
+modified), but `git`/`gh` act with *your* credentials —
 that's intentional, it's how PRs get opened. Set `permission_mode = "acceptEdits"` on a
 routine if you want a more conservative mode (note: it won't be able to push/open PRs
 unattended).

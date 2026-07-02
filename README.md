@@ -9,18 +9,18 @@ of claude.ai/code Routines.
 
 ## How it works
 
-A **routine** is one prompt + a list of projects + a schedule. A project is either a
-**local clone** on disk or a **remote GitHub repo** (`owner/repo` or a git URL) that ptt
-clones into a throwaway dir and deletes when the run finishes. When it runs, for each
-project ptt:
+A **routine** is one prompt + a list of projects + a schedule. A project can be a
+**local checkout** on disk or a **remote GitHub repo** (`owner/repo` or a git URL); either
+way ptt runs against a **fresh clone of its github.com remote** in a throwaway dir and
+deletes it when the run finishes. When it runs, for each project ptt:
 
-1. fetches `origin/<base_branch>` and creates an **isolated git worktree** on a fresh
-   `ptt/<routine>/<run-id>` branch (your real checkout is never touched) — or, for a
-   remote project, makes an **ephemeral clone** on that branch;
-2. runs `claude -p` headless in that worktree, with a footer instructing Claude to do
+1. **clones the project's github.com remote** into a throwaway dir and checks out a fresh
+   `ptt/<routine>/<run-id>` branch (a local checkout only supplies its `origin` URL — it is
+   never run in, fetched into, or branched);
+2. runs `claude -p` headless in that clone, with a footer instructing Claude to do
    the task, open a PR/issue with `gh` when warranted, and write a `.ptt-result.json`;
 3. detects the outcome from that file, **cross-checked** against a `gh` PR/issue diff;
-4. removes the worktree (or deletes the ephemeral clone); the pushed branch stays on the remote.
+4. deletes the clone; the pushed branch stays on the remote.
 
 Then it emails one summary per run over SMTP (any provider) and writes full logs to disk.
 
@@ -31,8 +31,9 @@ Then it emails one summary per run over SMTP (any provider) and writes full logs
 
 - [uv](https://docs.astral.sh/uv/) (it provisions Python ≥ 3.11 automatically)
 - `claude`, `git`, and `gh` on `PATH`; `gh` authenticated (`gh auth login`)
-- Each project is either a local git repo whose `origin` is on github.com, or a remote
-  GitHub repo given as `owner/repo` / a git URL (ptt clones it fresh, then deletes it)
+- Each project resolves to a github.com repo — a local checkout whose `origin` is on
+  github.com, or a remote given as `owner/repo` / a git URL. ptt always clones the remote
+  fresh and deletes it after (a local checkout is used read-only, never run in)
 - An SMTP account for email — any provider (Postmark, SES, Gmail, self-hosted)
 
 ## Install
@@ -85,16 +86,18 @@ description = "Weekday refactoring audit"
 enabled = true
 prompt = "~/prompts/refactor-audit.md"
 schedule = "Mon..Fri 05:00"     # systemd OnCalendar syntax
-projects = ["~/dev/rightkey", "pmatos/ptt"]   # local path or owner/repo (cloned+deleted)
+projects = ["~/dev/rightkey", "pmatos/ptt"]   # local path or owner/repo — both cloned fresh + deleted
 # base_branch / permission_mode / model / effort / timeout_minutes override [defaults]
 # model  = "claude-opus-4-8"
 # effort = "high"               # low | medium | high | xhigh | max  (reasoning effort)
 ```
 
-Each `projects` entry is either a **local path** (a clone whose `origin` is on github.com)
-or a **remote GitHub repo** — `owner/repo`, `https://github.com/owner/repo`, or an
-`git@github.com:owner/repo.git` URL — which ptt clones into `work_dir`, runs against, and
-deletes when the run ends. Private remotes need credentials `git`/`gh` can already use.
+Each `projects` entry is either a **local path** (a checkout whose `origin` is on
+github.com) or a **remote GitHub repo** — `owner/repo`, `https://github.com/owner/repo`, or
+a `git@github.com:owner/repo.git` URL. In both cases ptt clones the github.com remote into
+`work_dir`, runs against that clone, and deletes it when the run ends — a local checkout is
+only read (for its `origin`), never run in or modified. Private remotes need credentials
+`git`/`gh` can already use.
 
 Secrets — `~/.config/ptt/env` (chmod 600), loaded by the systemd timer:
 
@@ -153,8 +156,9 @@ Everything is kept under `~/.local/state/ptt/runs/<routine>/<run-id>/`:
 
 Unattended runs need Claude to edit files and run `git`/`gh` non-interactively, so the
 default `permission_mode = "bypass"` maps to `claude --dangerously-skip-permissions`.
-The blast radius is bounded to a throwaway worktree under `~/.cache/ptt/work`, but
-`git`/`gh` run with **your** credentials — that's intentional (it's how PRs get opened).
+The blast radius is bounded to a throwaway clone under `~/.cache/ptt/work` (your local
+checkouts are never run in or modified), but `git`/`gh` run with **your** credentials —
+that's intentional (it's how PRs get opened).
 The SMTP password is read only from the environment and never logged or emailed.
 
 ## Development

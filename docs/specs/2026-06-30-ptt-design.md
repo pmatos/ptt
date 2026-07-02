@@ -20,7 +20,7 @@ nothing / failed); keep full logs for debugging."*
 ### In scope
 - Define **routines** (prompt + projects + schedule) in config files.
 - Run a routine on demand or via a scheduler.
-- Execute Claude in an **isolated git worktree** per project, on a fresh branch.
+- Execute Claude in a **fresh per-run clone** of each project's remote, on a fresh branch.
 - Let Claude open PRs/issues with `gh`; detect the outcome.
 - Email a per-run summary via **Postmark**.
 - Persist full logs per run for debugging.
@@ -40,8 +40,10 @@ nothing / failed); keep full logs for debugging."*
 - **Run** — one execution of a routine. Fans out over the routine's projects
   (sequentially) and produces exactly one summary email.
 - **Run id** — a sortable UTC timestamp identifying a run, e.g. `20260630T050000Z`.
-- **Project** — a local git repository path whose `origin` remote is a GitHub repo
-  (required so PRs/issues can be created).
+- **Project** — a GitHub repository, given as an `owner/repo` slug, a git URL, or a local
+  checkout whose `origin` is on github.com (github origin required so PRs/issues can be
+  created). It is resolved to a clone URL and **cloned fresh** per run; a local checkout,
+  if any, is used read-only (to read its `origin`) and never run in.
 - **Outcome** — the structured result of running Claude on one project: one of
   `pr`, `issue_opened`, `issue_closed`, `commit`, or `none`; plus a status of
   `success`, `no_action`, or `error`.
@@ -53,8 +55,8 @@ nothing / failed); keep full logs for debugging."*
 | Language       | Python 3 (stdlib only)              | Light glue work; no build step; easy to read/debug/extend. |
 | Config format  | TOML (`tomllib`, Python 3.11+)      | Human-editable; native parser in stdlib. |
 | Scheduling     | systemd **user** timers             | Native on Arch; robust `OnCalendar`; logs to journald. |
-| Claude         | `claude -p` (headless)              | Non-interactive run against a worktree. |
-| Git isolation  | `git worktree`                      | Cheap isolation; reuses local objects; keeps real checkouts clean. |
+| Claude         | `claude -p` (headless)              | Non-interactive run against the per-run clone. |
+| Git isolation  | per-run `git clone` of the remote   | Full isolation from the local checkout; nothing local is fetched/branched; no local repo required (see ADR-0002). |
 | PR/issue I/O   | `gh` CLI                            | Already authenticated; simplest path to PRs/issues. |
 | Email          | SMTP via stdlib `smtplib` ¹         | No third-party deps; works with any email service. |
 
@@ -72,7 +74,7 @@ ptt/
   config.py         # load + validate global config and routines (TOML)
   runner.py         # run a routine: per-project fan-out, aggregation
   claude.py         # build & invoke `claude -p`; capture output
-  git_ops.py        # fetch, worktree add/remove, branch naming
+  git_ops.py        # classify origin, per-run clone/remove, branch naming
   outcomes.py       # parse .ptt-result.json + reconcile with gh
   notify.py         # build & send Postmark email
   logstore.py       # run/log directory layout + writers
@@ -99,7 +101,7 @@ is pure and mockable.
   routines/
     <name>.toml               # one file per routine
 
-~/.cache/ptt/work/            # transient git worktrees (created/removed per run)
+~/.cache/ptt/work/            # transient per-run clones (created/removed per run)
 
 ~/.local/state/ptt/runs/<routine>/<run-id>/
   run.json                    # run metadata + aggregated per-project results
@@ -127,8 +129,9 @@ prompt = "~/prompts/refactor-audit.md"   # path to the prompt markdown
 schedule = "Mon..Fri 05:00"              # systemd OnCalendar syntax
 
 projects = [
-  "~/dev/rightkey",
-  "~/dev/foo",
+  "~/dev/foo",                 # a local checkout (read-only, for its origin URL)
+  "pmatos/rightkey",           # an owner/repo slug
+  "git@github.com:pmatos/bar.git",   # or a git URL
 ]
 
 # optional, override [defaults]
@@ -142,9 +145,10 @@ Validation rules:
 - `name` matches the filename stem and `^[a-z0-9][a-z0-9-]*$` (used in unit names,
   branch names, paths).
 - `prompt` resolves (after `~` expansion) to a readable file.
-- `projects` is non-empty; each is a readable dir; each is a git repo whose `origin`
-  points at github.com (checked at run time, not load time, so editing config never
-  needs the repos present).
+- `projects` is non-empty. Each entry is a local path, an `owner/repo` slug, or a git URL;
+  it must resolve to a github.com remote (a local path is read for its `origin`).
+  Resolution happens at run time, not load time, so editing config never needs the repos
+  present.
 - `schedule` is a non-empty string; it is validated by `systemd-analyze calendar`
   during `ptt install` (not parsed by ptt itself).
 
@@ -187,17 +191,20 @@ unset.
 2. **Create run dir.** `~/.local/state/ptt/runs/<routine>/<run-id>/`, snapshot the
    prompt to `prompt.md`.
 3. **For each project, sequentially:**
-   1. `git -C <repo> fetch origin <base_branch>` (the remote is always `origin`, per §3/§7.1).
-   2. `git -C <repo> worktree add <work_dir>/<run-id>/<name> -b ptt/<routine>/<run-id> origin/<base_branch>`.
+   1. **Resolve the entry** to a github.com clone URL (§3/§7.1): an `owner/repo` slug or a
+      git URL is used directly; a local path contributes only its `origin` URL (read-only).
+   2. `git clone --single-branch --branch <base_branch> <url> <work_dir>/<run-id>/<name>`,
+      then `git -C <clone> checkout -b ptt/<routine>/<run-id>`. The clone is standalone
+      (`origin` = the github URL), so `gh` and pushes target the real repo. The user's
+      local checkout is **never** fetched into, branched, or run in.
    3. Snapshot pre-state: `gh pr list --json number,url,headRefName` and
-      `gh issue list --json number,url,state` (run in the worktree).
-   4. Invoke Claude (see §9) with cwd = worktree, prompt on stdin, output streamed to
+      `gh issue list --json number,url,state` (run in the clone).
+   4. Invoke Claude (see §9) with cwd = clone, prompt on stdin, output streamed to
       `claude.stdout.jsonl` / `claude.stderr.log`, under a wall-clock timeout.
-   5. Read `.ptt-result.json` from the worktree (written by Claude); reconcile with a
+   5. Read `.ptt-result.json` from the clone (written by Claude); reconcile with a
       fresh `gh` snapshot (see §11). Write `projects/<name>/result.json`.
-   6. `git worktree remove --force <work_dir>/<run-id>/<name>`. The branch, if pushed
-      by Claude, remains on the remote. On step failure, the worktree is still removed
-      but all logs are retained.
+   6. Delete the clone dir (`shutil.rmtree`). The branch, if pushed by Claude, remains on
+      the remote. On step failure, the clone is still removed but all logs are retained.
    7. Append the outcome to the run's in-memory result list. Any exception here is
       caught, recorded as an `error` outcome for this project, and does **not** abort
       the remaining projects.
@@ -220,7 +227,7 @@ claude -p \
   < <effective-prompt>
 ```
 
-- `cwd` is the worktree, so the whole repo is in scope without an extra `--add-dir`.
+- `cwd` is the clone, so the whole repo is in scope without an extra `--add-dir`.
 - **Effective prompt** = the routine's prompt markdown, followed by a fixed ptt
   instruction footer that tells Claude to:
   1. Perform the task described above.
@@ -251,9 +258,9 @@ claude -p \
 - Autonomous PR/issue creation requires Claude to edit files and run `git`/`gh`
   non-interactively. The v1 default `permission_mode = "bypass"` maps to
   `--dangerously-skip-permissions`.
-- **Blast radius is bounded** to a throwaway worktree under `~/.cache/ptt/work`. The
-  real checkout is never modified. However, `git`/`gh` run with the user's existing
-  credentials — that is intentional and necessary for opening PRs.
+- **Blast radius is bounded** to a throwaway clone under `~/.cache/ptt/work`. The local
+  checkout is never modified (not even fetched into or branched). However, `git`/`gh` run
+  with the user's existing credentials — that is intentional and necessary for opening PRs.
 - The Postmark token lives only in `~/.config/ptt/env` (mode 600) and the process
   environment; it is never logged or emailed.
 - `ptt install` warns that the timer runs commands unattended with the above
@@ -312,14 +319,14 @@ marker in the run dir, attempt **one** retry, then give up without failing the r
 | Failure                     | Handling |
 |-----------------------------|----------|
 | Missing config/token/`gh`/`claude` | `ptt doctor` and run preflight fail fast with a clear message, before any work. |
-| Project is not a git/GitHub repo   | That project → `error`; others continue. |
-| `git`/`gh`/worktree command fails  | Captured to `git.log`; project → `error`; worktree still removed. |
+| Project origin missing / not github.com | That project → `error`; others continue. |
+| `git clone`/`gh` command fails     | Captured to `git.log`; project → `error`; the clone is still removed. |
 | Claude non-zero exit               | Project → `error` with exit code + last stderr lines. |
 | Claude timeout                     | Process group killed; project → `error (timeout)`. |
 | `.ptt-result.json` missing/bad     | Fall back to gh delta; else `error (no result file)`. |
 | Postmark send fails                | Logged + marker + one retry; run record unaffected. |
 
-Worktree cleanup always runs in a `finally`. One project's failure never aborts the run.
+Clone cleanup always runs in a `finally`. One project's failure never aborts the run.
 
 ## 14. systemd integration
 

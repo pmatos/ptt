@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 from ptt import projects as proj
@@ -62,10 +63,30 @@ def test_run_pr_is_verified_and_cleaned(fake_bin, github_repo, tmp_path, monkeyp
     assert (Path(p.log_dir) / "result.json").is_file()
     assert (Path(p.log_dir) / "claude.stdout.jsonl").is_file()
     assert (Path(p.log_dir) / "git.log").is_file()
-    # worktree cleaned up, including the now-empty run-id parent dir
+    # ephemeral clone cleaned up, including the now-empty run-id parent dir
     dest = r.work_dir / run.run_id / p.name
     assert not dest.exists()
     assert not (r.work_dir / run.run_id).exists()
+
+
+def test_run_local_project_clones_and_leaves_checkout_untouched(
+    fake_bin, github_repo, tmp_path, monkeypatch
+):
+    # The user's requirement: even a LOCAL project runs on a fresh clone of its
+    # remote, not a worktree — so the local checkout gains no ptt/* branch and is
+    # never mutated.
+    monkeypatch.setenv("PTT_FAKE_MODE", "pr")
+    r = make_routine(tmp_path, [github_repo])
+    run = runner.run_routine(r, make_global())
+    p = run.projects[0]
+    assert p.action == m.Action.PR and p.verified is True
+    assert p.path == str(github_repo)  # local path recorded for display
+    leaked = subprocess.run(
+        ["git", "-C", str(github_repo), "branch", "--list", "ptt/*"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert leaked == ""  # no ptt/* branch left behind in the local checkout
 
 
 def test_run_remote_clone_pr_and_cleaned(
@@ -114,15 +135,16 @@ def test_run_remote_commit_only_is_error_and_cleaned(
     assert not (r.work_dir / run.run_id).exists()  # clone still cleaned up
 
 
-def test_run_local_commit_only_is_success(fake_bin, github_repo, tmp_path, monkeypatch):
-    # A local run keeps its worktree branch in the source repo, so a commit-only
-    # outcome remains a verified success.
+def test_run_local_commit_only_is_error(fake_bin, github_repo, tmp_path, monkeypatch):
+    # A local project now runs in a throwaway clone too (not a worktree of the
+    # checkout), so an unpushed commit is lost with the clone — same as remote.
     monkeypatch.setenv("PTT_FAKE_MODE", "commit")
     r = make_routine(tmp_path, [github_repo])
     run = runner.run_routine(r, make_global())
     p = run.projects[0]
-    assert p.status == m.Status.SUCCESS
-    assert p.action == m.Action.COMMIT
+    assert p.status == m.Status.ERROR
+    assert "not pushed" in (p.reason or "")
+    assert not (r.work_dir / run.run_id).exists()  # clone still cleaned up
 
 
 def test_run_error_sets_overall_error_and_cleans(
