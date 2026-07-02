@@ -37,10 +37,12 @@ def make_run_dir(routine: str, run_id: str) -> tuple[str, Path]:
             n += 1
 
 
-def project_dir_name(path: Path, taken: set[str]) -> str:
-    name = path.name
+def project_dir_name(base_name: str, unique_key: str, taken: set[str]) -> str:
+    """Pick a collision-free log dir name for a project. `unique_key` (the project's
+    raw spec / path) disambiguates two projects that share a basename."""
+    name = base_name
     if name in taken:
-        digest = hashlib.sha1(str(path).encode()).hexdigest()[:6]
+        digest = hashlib.sha1(unique_key.encode()).hexdigest()[:6]
         name = f"{name}-{digest}"
     return name
 

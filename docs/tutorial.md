@@ -19,7 +19,9 @@ lets Claude open a PR when it finds something worth doing, and emails you a summ
   ```bash
   gh auth login
   ```
-- **A GitHub project** to point ptt at — a local clone whose `origin` is on github.com.
+- **A GitHub project** to point ptt at — either a local clone whose `origin` is on
+  github.com, or a remote repo you name as `owner/repo` (ptt clones it fresh each run and
+  deletes it afterward; private repos just need credentials `git`/`gh` can already use).
 - **An email account you can send through over SMTP** — any provider works (Postmark,
   Amazon SES, Gmail, Fastmail, a self-hosted MTA). You'll need its SMTP host, a username,
   and a password/token. If the provider verifies senders (Postmark, SES), make sure the
@@ -146,14 +148,35 @@ enabled = true
 
 prompt = "~/prompts/refactor-audit.md"
 schedule = "Mon..Fri 05:00"          # systemd OnCalendar syntax
-projects = ["~/dev/yourproject"]     # one or more local git repos
+projects = ["~/dev/yourproject"]     # local paths and/or remote repos (see below)
 
 # optional (fall back to [defaults]):
 # base_branch = "main"
 # permission_mode = "bypass"
 # model = "claude-opus-4-8"
+# effort = "high"                    # low | medium | high | xhigh | max
 # timeout_minutes = 30
 ```
+
+**`effort`** picks Claude's reasoning effort for the run (passed through as
+`claude --effort`). Higher effort means the model thinks harder (and costs more); leave it
+unset to use the model's default. Which levels a model accepts varies — Opus takes
+`low`/`medium`/`high`/`max`.
+
+**Remote projects** — a `projects` entry doesn't have to be on disk. Alongside local paths
+you can list a GitHub repo and ptt will clone it fresh, run the prompt, and delete the
+clone when the run finishes:
+
+```toml
+projects = [
+  "~/dev/yourproject",                    # local checkout (worktree, never touched)
+  "yourname/some-repo",                   # owner/repo shorthand → cloned + deleted
+  "https://github.com/yourname/other",    # full URL also works (also git@… SSH)
+]
+```
+
+Ephemeral clones land under `work_dir` (default `~/.cache/ptt/work`) and are removed after
+each run. Private repos work as long as `git`/`gh` already have credentials for them.
 
 The `schedule` uses systemd's `OnCalendar` syntax. A few examples:
 
@@ -220,9 +243,10 @@ ptt run code-audit --project ~/dev/yourproject   # just one project
 ptt run code-audit --force                        # run even if disabled
 ```
 
-Each project runs in a throwaway git worktree under `~/.cache/ptt/work` on a fresh
-`ptt/code-audit/<run-id>` branch, so your real checkout is never touched. If Claude opens
-a PR, the branch is pushed to your remote; the local worktree is cleaned up afterward.
+Each local project runs in a throwaway git worktree under `~/.cache/ptt/work` on a fresh
+`ptt/code-audit/<run-id>` branch, so your real checkout is never touched; a remote project
+is cloned into the same place on that branch instead. If Claude opens a PR, the branch is
+pushed to your remote; the worktree (or ephemeral clone) is cleaned up afterward.
 
 ## 9. Inspect what happened
 

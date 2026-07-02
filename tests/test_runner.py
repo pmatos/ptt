@@ -1,7 +1,15 @@
 from pathlib import Path
 
+from ptt import projects as proj
 from ptt import runner
 from ptt import models as m
+
+
+def _as_spec(p):
+    if isinstance(p, m.ProjectSpec):
+        return p
+    s = str(p)
+    return m.ProjectSpec(raw=s, is_remote=False, location=s, name=Path(s).name)
 
 
 def make_global():
@@ -30,10 +38,11 @@ def make_routine(tmp_path, projects, name="audit", enabled=True, timeout=30):
         enabled=enabled,
         prompt=prompt,
         schedule="Mon..Fri 05:00",
-        projects=projects,
+        projects=[_as_spec(p) for p in projects],
         base_branch="main",
         permission_mode=m.PermissionMode.BYPASS,
         model=None,
+        effort=None,
         timeout_minutes=timeout,
         work_dir=tmp_path / "ptt-work",
     )
@@ -54,6 +63,25 @@ def test_run_pr_is_verified_and_cleaned(fake_bin, github_repo, tmp_path, monkeyp
     assert (Path(p.log_dir) / "claude.stdout.jsonl").is_file()
     assert (Path(p.log_dir) / "git.log").is_file()
     # worktree cleaned up, including the now-empty run-id parent dir
+    dest = r.work_dir / run.run_id / p.name
+    assert not dest.exists()
+    assert not (r.work_dir / run.run_id).exists()
+
+
+def test_run_remote_clone_pr_and_cleaned(
+    fake_bin, remote_github_repo, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PTT_FAKE_MODE", "pr")
+    spec = proj.parse(remote_github_repo)  # "fake/repo" -> ephemeral clone
+    assert spec.is_remote is True
+    r = make_routine(tmp_path, [spec])
+    run = runner.run_routine(r, make_global())
+    assert run.overall_status == m.Status.SUCCESS
+    p = run.projects[0]
+    assert p.action == m.Action.PR and p.verified is True
+    assert p.name == "repo"
+    assert p.path == "fake/repo"
+    # the ephemeral clone (and the now-empty run-id parent) are removed
     dest = r.work_dir / run.run_id / p.name
     assert not dest.exists()
     assert not (r.work_dir / run.run_id).exists()

@@ -3,6 +3,7 @@ per-run worktree. All commands are tee'd to the project's git.log via proc.run."
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from ptt import proc
@@ -65,3 +66,30 @@ def remove_worktree(repo: Path, dest: Path, log_path: Path) -> None:
         ["git", "-C", str(repo), "worktree", "remove", "--force", str(dest)],
         log_path=log_path,
     )
+
+
+def clone(url: str, dest: Path, base_branch: str, log_path: Path) -> None:
+    """Clone a remote repo into a fresh disposable dir (ephemeral projects)."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    r = proc.run(
+        ["git", "clone", "--single-branch", "--branch", base_branch, url, str(dest)],
+        log_path=log_path,
+    )
+    if r.returncode != 0:
+        raise GitError(f"git clone {url} failed: {r.stderr.strip()}")
+
+
+def create_branch(repo: Path, branch: str, log_path: Path) -> None:
+    r = proc.run(["git", "-C", str(repo), "checkout", "-b", branch], log_path=log_path)
+    if r.returncode != 0:
+        raise GitError(f"git checkout -b {branch} failed in {repo}: {r.stderr.strip()}")
+
+
+def remove_clone(dest: Path, log_path: Path) -> None:
+    """Best-effort removal of an ephemeral clone; never raises (finally block)."""
+    try:
+        with log_path.open("a") as fh:
+            fh.write(f"$ rm -rf {dest}\n")
+    except OSError:
+        pass
+    shutil.rmtree(dest, ignore_errors=True)

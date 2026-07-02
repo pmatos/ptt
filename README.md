@@ -9,15 +9,18 @@ of claude.ai/code Routines.
 
 ## How it works
 
-A **routine** is one prompt + a list of projects + a schedule. When it runs, for each
+A **routine** is one prompt + a list of projects + a schedule. A project is either a
+**local clone** on disk or a **remote GitHub repo** (`owner/repo` or a git URL) that ptt
+clones into a throwaway dir and deletes when the run finishes. When it runs, for each
 project ptt:
 
 1. fetches `origin/<base_branch>` and creates an **isolated git worktree** on a fresh
-   `ptt/<routine>/<run-id>` branch (your real checkout is never touched);
+   `ptt/<routine>/<run-id>` branch (your real checkout is never touched) — or, for a
+   remote project, makes an **ephemeral clone** on that branch;
 2. runs `claude -p` headless in that worktree, with a footer instructing Claude to do
    the task, open a PR/issue with `gh` when warranted, and write a `.ptt-result.json`;
 3. detects the outcome from that file, **cross-checked** against a `gh` PR/issue diff;
-4. removes the worktree (the pushed branch stays on the remote).
+4. removes the worktree (or deletes the ephemeral clone); the pushed branch stays on the remote.
 
 Then it emails one summary per run over SMTP (any provider) and writes full logs to disk.
 
@@ -28,7 +31,8 @@ Then it emails one summary per run over SMTP (any provider) and writes full logs
 
 - [uv](https://docs.astral.sh/uv/) (it provisions Python ≥ 3.11 automatically)
 - `claude`, `git`, and `gh` on `PATH`; `gh` authenticated (`gh auth login`)
-- Each project must be a git repo whose `origin` is on github.com
+- Each project is either a local git repo whose `origin` is on github.com, or a remote
+  GitHub repo given as `owner/repo` / a git URL (ptt clones it fresh, then deletes it)
 - An SMTP account for email — any provider (Postmark, SES, Gmail, self-hosted)
 
 ## Install
@@ -81,9 +85,16 @@ description = "Weekday refactoring audit"
 enabled = true
 prompt = "~/prompts/refactor-audit.md"
 schedule = "Mon..Fri 05:00"     # systemd OnCalendar syntax
-projects = ["~/dev/rightkey", "~/dev/foo"]
-# base_branch / permission_mode / model / timeout_minutes override [defaults]
+projects = ["~/dev/rightkey", "pmatos/ptt"]   # local path or owner/repo (cloned+deleted)
+# base_branch / permission_mode / model / effort / timeout_minutes override [defaults]
+# model  = "claude-opus-4-8"
+# effort = "high"               # low | medium | high | xhigh | max  (reasoning effort)
 ```
+
+Each `projects` entry is either a **local path** (a clone whose `origin` is on github.com)
+or a **remote GitHub repo** — `owner/repo`, `https://github.com/owner/repo`, or an
+`git@github.com:owner/repo.git` URL — which ptt clones into `work_dir`, runs against, and
+deletes when the run ends. Private remotes need credentials `git`/`gh` can already use.
 
 Secrets — `~/.config/ptt/env` (chmod 600), loaded by the systemd timer:
 

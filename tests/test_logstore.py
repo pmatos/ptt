@@ -1,6 +1,5 @@
 import json
 import re
-from pathlib import Path
 
 from ptt import logstore
 from ptt import models as m
@@ -21,9 +20,9 @@ def test_make_run_dir_collision_gets_suffix(tmp_xdg):
 
 def test_project_dir_name_disambiguates_collisions():
     taken: set[str] = set()
-    n1 = logstore.project_dir_name(Path("/a/repo"), taken)
+    n1 = logstore.project_dir_name("repo", "/a/repo", taken)
     taken.add(n1)
-    n2 = logstore.project_dir_name(Path("/b/repo"), taken)
+    n2 = logstore.project_dir_name("repo", "/b/repo", taken)
     assert n1 == "repo"
     assert n2 != n1 and n2.startswith("repo-")
 

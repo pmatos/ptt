@@ -40,6 +40,14 @@ class PermissionMode(StrEnum):
     ACCEPT_EDITS = "acceptEdits"
 
 
+class Effort(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    XHIGH = "xhigh"
+    MAX = "max"
+
+
 class Source(StrEnum):
     CLAUDE = "claude"
     GH = "gh"
@@ -72,16 +80,29 @@ class GlobalConfig:
 
 
 @dataclass
+class ProjectSpec:
+    """A routine project entry, classified as either a local checkout or a remote
+    GitHub repo to be cloned ephemerally. `location` is the filesystem path (local)
+    or the clone URL (remote); `name` is the basename used for log dirs / --project."""
+
+    raw: str
+    is_remote: bool
+    location: str
+    name: str
+
+
+@dataclass
 class Routine:
     name: str
     description: str
     enabled: bool
     prompt: Path
     schedule: str
-    projects: list[Path]
+    projects: list[ProjectSpec]
     base_branch: str
     permission_mode: PermissionMode
     model: str | None
+    effort: Effort | None
     timeout_minutes: int
     work_dir: Path
 

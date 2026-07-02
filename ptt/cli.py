@@ -193,7 +193,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     r = sub.add_parser("run", help="run a routine now")
     r.add_argument("routine")
-    r.add_argument("--project", help="run only this project (path)")
+    r.add_argument("--project", help="run only this project (path or owner/repo)")
     r.add_argument("--force", action="store_true", help="run even if disabled")
     r.set_defaults(fn=_cmd_run)
 
