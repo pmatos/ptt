@@ -80,3 +80,12 @@ def test_root_path_falls_back_to_project_token():
     s = projects.parse("/")
     assert s.is_remote is False
     assert s.name == "project"
+
+
+def test_url_with_degenerate_last_segment_falls_back_to_token():
+    # a mistyped URL must never yield "" / "." / ".." as the name, or the runner's
+    # dest = work_dir/<run_id>/<name> would collapse to (and rmtree) its parent.
+    for bad in ("https://github.com/org/..", "https://github.com/org/.", "https://"):
+        s = projects.parse(bad)
+        assert s.is_remote is True
+        assert s.name == "project"
