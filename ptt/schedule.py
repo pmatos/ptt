@@ -29,15 +29,26 @@ def ptt_command() -> str:
     return found if found else f"{sys.executable} -m ptt"
 
 
-def render_service(routine_name: str, ptt_cmd: str) -> str:
-    return (
-        "[Unit]\n"
-        f"Description=ptt routine {routine_name}\n\n"
-        "[Service]\n"
-        "Type=oneshot\n"
-        "EnvironmentFile=%h/.config/ptt/env\n"
-        f"ExecStart={ptt_cmd} run {routine_name}\n"
-    )
+def render_service(routine_name: str, ptt_cmd: str, path_env: str | None = None) -> str:
+    lines = [
+        "[Unit]",
+        f"Description=ptt routine {routine_name}",
+        "",
+        "[Service]",
+        "Type=oneshot",
+        "EnvironmentFile=%h/.config/ptt/env",
+    ]
+    # Bake the install-time PATH so `claude`/`git`/`gh` resolve the way they do in
+    # the user's shell. The systemd user manager's own PATH is sparse and typically
+    # omits e.g. ~/.local/bin, which would leave subprocess("claude") unfindable.
+    # The value is double-quoted (with C-style escaping) because systemd splits an
+    # unquoted Environment= value on whitespace into separate assignments, which
+    # would silently truncate a PATH entry that contains a space.
+    if path_env:
+        escaped = path_env.replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'Environment="PATH={escaped}"')
+    lines.append(f"ExecStart={ptt_cmd} run {routine_name}")
+    return "\n".join(lines) + "\n"
 
 
 def render_timer(routine_name: str, schedule: str) -> str:
@@ -87,7 +98,9 @@ def install(routine: m.Routine) -> str:
     d = units_dir()
     d.mkdir(parents=True, exist_ok=True)
     cmd = ptt_command()
-    (d / f"ptt-{routine.name}.service").write_text(render_service(routine.name, cmd))
+    (d / f"ptt-{routine.name}.service").write_text(
+        render_service(routine.name, cmd, os.environ.get("PATH", ""))
+    )
     (d / f"ptt-{routine.name}.timer").write_text(
         render_timer(routine.name, routine.schedule)
     )
