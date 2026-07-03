@@ -15,7 +15,9 @@ ptt = "ptt.cli:main"
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6",
     "pytest",
+    "pytest-cov",
     "ruff>=0.15.20",
     "ty>=0.0.56",
 ]
@@ -23,5 +25,23 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["ptt"]
 
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "S", "RUF"]
+# ptt's whole job is shelling out to git/gh/claude/systemctl via argument lists
+# (never shell=True), so S603 (subprocess call) and S607 (partial exe path — we
+# rely on PATH, by design for a CLI) are noise here rather than real findings.
+ignore = ["S603", "S607"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests aren't a production security surface: asserts (S101), subprocess calls to
+# the fakes in tests/fake_bin, hard-coded fixture credentials, and temp paths are
+# all expected and intentional.
+"tests/**" = ["S"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=ptt --cov-report=term-missing --cov-fail-under=90"
+
+[tool.coverage.run]
+# __main__.py is the `python -m ptt` entrypoint (calls cli.main); nothing to cover.
+omit = ["ptt/__main__.py"]

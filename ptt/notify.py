@@ -102,6 +102,6 @@ def notify(
         try:
             send(subject, text, html, email_cfg, password)
             return
-        except Exception as e:  # noqa: BLE001 - email must never crash the run
+        except Exception as e:  # email must never crash the run
             last = e
     marker.write_text(f"SMTP send failed: {last}")

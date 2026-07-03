@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# Cancel superseded runs (e.g. a new push to a PR) instead of running them out.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -16,7 +21,9 @@ jobs:
       matrix:
         python-version: ["3.11", "3.13"]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@v8.2.0
         with:
@@ -30,7 +37,9 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@v8.2.0
         with:
@@ -44,3 +53,16 @@ jobs:
         run: uv run ruff check
       - name: Format check (ruff)
         run: uv run ruff format --check
+
+  workflow-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+      - name: Lint workflows (zizmor)
+        run: uvx zizmor@1.26.1 --offline .github/workflows
+      - name: Lint workflows (actionlint)
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12

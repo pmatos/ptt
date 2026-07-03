@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ptt import config
@@ -13,7 +13,7 @@ from ptt import models as m
 
 
 def new_run_id() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _runs_root() -> Path:
@@ -42,7 +42,9 @@ def project_dir_name(base_name: str, unique_key: str, taken: set[str]) -> str:
     raw spec / path) disambiguates two projects that share a basename."""
     name = base_name
     if name in taken:
-        digest = hashlib.sha1(unique_key.encode()).hexdigest()[:6]
+        digest = hashlib.sha1(unique_key.encode(), usedforsecurity=False).hexdigest()[
+            :6
+        ]
         name = f"{name}-{digest}"
     return name
 

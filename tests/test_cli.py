@@ -1,7 +1,6 @@
 import json
 
-from ptt import cli
-from ptt import notify
+from ptt import cli, notify
 
 
 def write_config(cfg_home, github_repo, tmp_path, name="audit", enabled=True):

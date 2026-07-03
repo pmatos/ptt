@@ -1,7 +1,7 @@
 import pytest
 
-from ptt import notify
 from ptt import models as m
+from ptt import notify
 
 
 def _fake_smtp(record):
@@ -202,7 +202,7 @@ def test_send_raises_on_smtp_error(monkeypatch):
         raise notify.smtplib.SMTPException("nope")
 
     monkeypatch.setattr(notify.smtplib, "SMTP", boom)
-    with pytest.raises(Exception):
+    with pytest.raises(notify.smtplib.SMTPException):
         notify.send("s", "b", None, _email(m.EmailOn.ALWAYS), "PW")
 
 

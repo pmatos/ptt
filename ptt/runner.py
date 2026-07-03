@@ -2,13 +2,15 @@
 a throwaway clone of its github.com remote), reconcile outcomes, write logs, and email
 a summary. Local and remote projects are treated the same — a local entry contributes
 only its origin URL (read-only); ptt never runs in, fetches into, or branches the local
-checkout. One project failing never aborts the others; clone cleanup is always guaranteed."""
+checkout. One project failing never aborts the others; clone cleanup is always
+guaranteed."""
 
 from __future__ import annotations
 
+import contextlib
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ptt import claude, git_ops, logstore, notify, outcomes, projects
@@ -16,7 +18,7 @@ from ptt import models as m
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def exit_code(run: m.RunResult) -> int:
@@ -78,7 +80,7 @@ def run_routine(
             results.append(
                 _run_one_project(routine, spec, run_id, pdir, prompt_text, name)
             )
-        except Exception as e:  # noqa: BLE001 - isolate per-project failures
+        except Exception as e:  # isolate per-project failures
             results.append(
                 _error_result(
                     name,
@@ -91,10 +93,8 @@ def run_routine(
 
     # tidy the now-empty per-run work parent (clones themselves are already
     # removed); leave it in place if anything failed to clean up.
-    try:
+    with contextlib.suppress(OSError):
         (routine.work_dir / run_id).rmdir()
-    except OSError:
-        pass
 
     return _finish(routine, run_id, run_dir, started, results, global_cfg)
 

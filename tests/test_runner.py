@@ -1,9 +1,9 @@
 import subprocess
 from pathlib import Path
 
+from ptt import models as m
 from ptt import projects as proj
 from ptt import runner
-from ptt import models as m
 
 
 def _as_spec(p):

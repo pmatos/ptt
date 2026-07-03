@@ -4,6 +4,7 @@ its own process group so a timeout can kill the whole tree."""
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -99,8 +100,6 @@ def _terminate_group(p: subprocess.Popen) -> None:
     try:
         p.wait(timeout=2)
     except subprocess.TimeoutExpired:
-        try:
+        with contextlib.suppress(ProcessLookupError):
             os.killpg(pgid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
         p.wait()

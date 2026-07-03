@@ -8,6 +8,7 @@ the cwd to recover its real basename; a URL falls back to a fixed token."""
 
 from __future__ import annotations
 
+import contextlib
 import re
 from pathlib import Path
 
@@ -32,7 +33,11 @@ def parse(raw: str) -> m.ProjectSpec:
             location=url,
             name=_safe_name(_strip_git(s.split("/")[1])),
         )
-    path = Path(s).expanduser()
+    # A bare `~user` that can't be resolved makes expanduser() raise RuntimeError;
+    # a malformed project entry must degrade to a (bad) literal path, not crash the run.
+    path = Path(s)
+    with contextlib.suppress(RuntimeError):
+        path = path.expanduser()
     return m.ProjectSpec(
         raw=raw, is_remote=False, location=str(path), name=_safe_name(path.name, path)
     )

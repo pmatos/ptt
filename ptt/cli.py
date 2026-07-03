@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import shutil
 import sys
@@ -26,10 +27,8 @@ def _cmd_list(args) -> int:
         print("no routines configured")
         return 0
     cfg = None
-    try:
+    with contextlib.suppress(config.ConfigError):
         cfg = config.load_global_config()
-    except config.ConfigError:
-        pass
     for name in names:
         state = "?"
         if cfg is not None:
@@ -177,7 +176,7 @@ def _cmd_test_email(args) -> int:
             cfg.email,
             password,
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"failed to send: {e}", file=sys.stderr)
         return 1
     print(f"test email sent to {cfg.email.to_addr}")
