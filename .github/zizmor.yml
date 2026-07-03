@@ -1,0 +1,9 @@
+# zizmor configuration.
+# Actions are pinned to their latest major/release tag (readable + auto-patched)
+# rather than commit hashes, so require a ref pin instead of a hash pin. Every
+# other zizmor audit stays on.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": ref-pin

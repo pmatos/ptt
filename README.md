@@ -182,5 +182,5 @@ in-loop (your personal `.claude/settings.local.json` stays gitignored).
 CI (`.github/workflows/ci.yml`) runs the test suite on Python 3.11 and 3.13, the
 `ty` / `ruff` checks, and workflow-security linting ([zizmor](https://docs.zizmor.sh/) +
 [actionlint](https://github.com/rhysd/actionlint)) on every push to `main` and every pull
-request; superseded runs are cancelled. Actions are SHA-pinned and kept current by
-Dependabot (`.github/dependabot.yml`).
+request; superseded runs are cancelled. Actions are pinned to their latest major/release
+tag and kept current by Dependabot (`.github/dependabot.yml`).
