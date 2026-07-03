@@ -139,6 +139,10 @@ ptt uninstall code-audit
 and enables the timer. The unit's `ExecStart` uses whatever `ptt` resolves to at install
 time — `~/.local/bin/ptt` if you ran `uv tool install`, or the project's
 `.venv/bin/ptt` if you ran `uv run ptt install` — both stable, absolute paths.
+The service also bakes in your **current `PATH`** (via `Environment=PATH=…`) so that
+`claude`, `git`, and `gh` resolve the same way they do in your shell — the systemd user
+manager's own `PATH` is sparse and usually omits e.g. `~/.local/bin`, which is where
+`claude` typically lives. Run `ptt install <routine>` again if `claude` ever moves.
 For timers to fire **while you're logged out**, enable lingering once (the only step
 that needs sudo):
 

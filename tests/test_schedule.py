@@ -42,6 +42,19 @@ def test_render_service_has_exec_envfile_oneshot():
     assert "ExecStart=/usr/bin/ptt run audit" in s
 
 
+def test_render_service_bakes_path_when_given():
+    s = schedule.render_service("audit", "/usr/bin/ptt", "/home/me/.local/bin:/usr/bin")
+    assert "Environment=PATH=/home/me/.local/bin:/usr/bin" in s
+    # PATH must be set before ExecStart so the subprocess `claude` lookup can see it.
+    assert s.index("Environment=PATH=") < s.index("ExecStart=")
+
+
+def test_render_service_omits_path_line_when_empty():
+    assert "Environment=PATH=" not in schedule.render_service(
+        "audit", "/usr/bin/ptt", ""
+    )
+
+
 def test_render_timer_has_calendar_and_persistent():
     s = schedule.render_timer("audit", "Mon..Fri 05:00")
     assert "OnCalendar=Mon..Fri 05:00" in s
@@ -49,11 +62,15 @@ def test_render_timer_has_calendar_and_persistent():
     assert "WantedBy=timers.target" in s
 
 
-def test_install_writes_units_and_reloads(all_ok, tmp_xdg):
+def test_install_writes_units_and_reloads(all_ok, tmp_xdg, monkeypatch):
+    monkeypatch.setenv("PATH", "/home/me/.local/bin:/usr/bin")
     note = schedule.install(_routine())
     d = schedule.units_dir()
-    assert (d / "ptt-audit.service").is_file()
+    svc = d / "ptt-audit.service"
+    assert svc.is_file()
     assert (d / "ptt-audit.timer").is_file()
+    # install captures the live PATH so `claude` resolves under systemd's sparse env.
+    assert "Environment=PATH=/home/me/.local/bin:/usr/bin" in svc.read_text()
     assert "enable-linger" in note  # surfaces the one-time linger step
 
 

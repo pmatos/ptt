@@ -300,6 +300,12 @@ One-time setup (needs sudo) so timers fire while logged out:
   sudo loginctl enable-linger <you>
 ```
 
+Install bakes your **current `PATH`** into the service unit so the scheduled run finds
+`claude`, `git`, and `gh` exactly where your shell does. This matters because systemd's
+user manager runs with a sparse `PATH` that usually omits `~/.local/bin` (where `claude`
+typically lives) — without this you'd see `No such file or directory: 'claude'` in the
+run log. Re-run `ptt install <routine>` if `claude` ever moves to a different directory.
+
 Run that `enable-linger` line once (the only step needing sudo) so the routine fires even
 when you're not logged in. Confirm it's scheduled:
 
@@ -336,6 +342,7 @@ unattended).
 | No email arrived                     | Check `on` policy; look for a `.email-failed` marker in the run dir.  |
 | Action shown as `(unverified)`       | Claude claimed a PR/issue `gh` couldn't confirm — check `git.log`.    |
 | Project `failed (timeout)`           | Raise `timeout_minutes` for the routine.                             |
+| `No such file or directory: 'claude'` under the timer | The unit's baked `PATH` is stale or predates this fix — re-run `ptt install <routine>` from a shell where `claude` is on `PATH`. |
 | Timer never fires while logged out   | Run `sudo loginctl enable-linger <you>`.                              |
 
 For deeper debugging, read `claude.stderr.log` and `git.log` in the run's project dir.
