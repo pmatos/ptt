@@ -41,8 +41,12 @@ def render_service(routine_name: str, ptt_cmd: str, path_env: str | None = None)
     # Bake the install-time PATH so `claude`/`git`/`gh` resolve the way they do in
     # the user's shell. The systemd user manager's own PATH is sparse and typically
     # omits e.g. ~/.local/bin, which would leave subprocess("claude") unfindable.
+    # The value is double-quoted (with C-style escaping) because systemd splits an
+    # unquoted Environment= value on whitespace into separate assignments, which
+    # would silently truncate a PATH entry that contains a space.
     if path_env:
-        lines.append(f"Environment=PATH={path_env}")
+        escaped = path_env.replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'Environment="PATH={escaped}"')
     lines.append(f"ExecStart={ptt_cmd} run {routine_name}")
     return "\n".join(lines) + "\n"
 
