@@ -128,6 +128,7 @@ ptt list                           # routines + enabled state + timers
 ptt logs code-audit                # latest run summary
 ptt logs code-audit --run 20260630T050000Z --project rightkey   # drill in
 ptt test-email                     # verify your SMTP settings work
+ptt wait-online                    # block until DNS resolves (the timer's pre-run gate)
 
 ptt install code-audit             # create + enable the systemd user timer
 ptt uninstall code-audit
@@ -143,6 +144,13 @@ The service also bakes in your **current `PATH`** (via `Environment="PATH=…"`)
 `claude`, `git`, and `gh` resolve the same way they do in your shell — the systemd user
 manager's own `PATH` is sparse and usually omits e.g. `~/.local/bin`, which is where
 `claude` typically lives. Run `ptt install <routine>` again if `claude` ever moves.
+
+Timers use `Persistent=true`, so a run missed while the machine was asleep fires on
+resume — potentially before the network is up. The service therefore gates `ExecStart`
+behind `ExecStartPre=-… wait-online`, which waits (up to two minutes) for DNS before the
+run so a resume-triggered run doesn't fail every clone with `Could not resolve host`. The
+`-` prefix makes it best-effort: if DNS never comes up the run proceeds anyway.
+
 For timers to fire **while you're logged out**, enable lingering once (the only step
 that needs sudo):
 

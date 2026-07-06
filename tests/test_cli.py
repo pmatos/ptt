@@ -1,6 +1,6 @@
 import json
 
-from ptt import cli, notify
+from ptt import cli, netcheck, notify
 
 
 def write_config(cfg_home, github_repo, tmp_path, name="audit", enabled=True):
@@ -132,6 +132,30 @@ def test_test_email_sends_provider_neutral_body(
     assert cli.main(["test-email"]) == 0
     assert "postmark" not in captured["text"].lower()
     assert captured["password"] == "pw"
+
+
+def test_wait_online_returns_zero_when_host_resolves(monkeypatch):
+    monkeypatch.setattr(netcheck, "wait_online", lambda host, timeout: True)
+    assert cli.main(["wait-online"]) == 0
+
+
+def test_wait_online_returns_one_and_warns_on_give_up(monkeypatch, capsys):
+    monkeypatch.setattr(netcheck, "wait_online", lambda host, timeout: False)
+    assert cli.main(["wait-online", "--host", "git.example", "--timeout", "5"]) == 1
+    assert "did not resolve" in capsys.readouterr().err
+
+
+def test_wait_online_passes_host_and_timeout_through(monkeypatch):
+    seen = {}
+
+    def fake(host, timeout):
+        seen["host"] = host
+        seen["timeout"] = timeout
+        return True
+
+    monkeypatch.setattr(netcheck, "wait_online", fake)
+    cli.main(["wait-online", "--host", "git.example", "--timeout", "7"])
+    assert seen == {"host": "git.example", "timeout": 7.0}
 
 
 def test_list_shows_routines(tmp_xdg, github_repo, tmp_path, capsys):

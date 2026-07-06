@@ -8,7 +8,7 @@ import os
 import shutil
 import sys
 
-from ptt import config, git_ops, logstore, notify, runner, schedule
+from ptt import config, git_ops, logstore, netcheck, notify, runner, schedule
 from ptt import models as m
 
 
@@ -87,6 +87,19 @@ def _cmd_uninstall(args) -> int:
     schedule.uninstall(args.routine)
     print(f"removed timer for {args.routine!r}")
     return 0
+
+
+def _cmd_wait_online(args) -> int:
+    """Block until DNS is up (the systemd ExecStartPre gate). Always exits so a
+    give-up never blocks the run — a non-zero code just marks it in the journal."""
+    if netcheck.wait_online(args.host, args.timeout):
+        return 0
+    print(
+        f"wait-online: {args.host} did not resolve within {args.timeout:g}s; "
+        "proceeding anyway",
+        file=sys.stderr,
+    )
+    return 1
 
 
 def _cmd_doctor(args) -> int:
@@ -211,6 +224,18 @@ def build_parser() -> argparse.ArgumentParser:
     un = sub.add_parser("uninstall", help="remove systemd timer")
     un.add_argument("routine")
     un.set_defaults(fn=_cmd_uninstall)
+
+    wo = sub.add_parser(
+        "wait-online", help="block until DNS resolves (used by the systemd timer)"
+    )
+    wo.add_argument("--host", default=netcheck.DEFAULT_HOST, help="host to resolve")
+    wo.add_argument(
+        "--timeout",
+        type=float,
+        default=netcheck.DEFAULT_TIMEOUT_S,
+        help="seconds to keep trying before giving up",
+    )
+    wo.set_defaults(fn=_cmd_wait_online)
 
     sub.add_parser("doctor", help="check config + tooling").set_defaults(fn=_cmd_doctor)
     sub.add_parser("test-email", help="send a test email").set_defaults(
