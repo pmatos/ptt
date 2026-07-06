@@ -41,6 +41,14 @@ def test_render_service_has_exec_envfile_oneshot():
     assert "ExecStart=/usr/bin/ptt run audit" in s
 
 
+def test_render_service_gates_on_wait_online_before_exec():
+    s = schedule.render_service("audit", "/usr/bin/ptt")
+    # Non-blocking DNS gate ('-' prefix = ignore failure) placed before the run so
+    # a resume-from-suspend race doesn't fail every clone on an unresolved host.
+    assert "ExecStartPre=-/usr/bin/ptt wait-online" in s
+    assert s.index("ExecStartPre=") < s.index("ExecStart=")
+
+
 def test_render_service_bakes_path_when_given():
     s = schedule.render_service("audit", "/usr/bin/ptt", "/home/me/.local/bin:/usr/bin")
     # Quoted so systemd doesn't split the value on whitespace into extra assignments.

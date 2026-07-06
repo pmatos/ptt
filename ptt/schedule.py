@@ -47,6 +47,11 @@ def render_service(routine_name: str, ptt_cmd: str, path_env: str | None = None)
     if path_env:
         escaped = path_env.replace("\\", "\\\\").replace('"', '\\"')
         lines.append(f'Environment="PATH={escaped}"')
+    # A Persistent timer fires the moment the machine resumes from suspend, often
+    # before DNS is back — which made every clone and the SMTP summary fail with
+    # "Could not resolve host". Wait for the resolver first. The leading '-' tells
+    # systemd to ignore a non-zero exit, so a give-up never blocks the run itself.
+    lines.append(f"ExecStartPre=-{ptt_cmd} wait-online")
     lines.append(f"ExecStart={ptt_cmd} run {routine_name}")
     return "\n".join(lines) + "\n"
 

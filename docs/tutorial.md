@@ -306,6 +306,15 @@ user manager runs with a sparse `PATH` that usually omits `~/.local/bin` (where 
 typically lives) — without this you'd see `No such file or directory: 'claude'` in the
 run log. Re-run `ptt install <routine>` if `claude` ever moves to a different directory.
 
+The timer is installed with `Persistent=true`, so a run missed while the machine was
+asleep or off fires as soon as it comes back. Because that can happen the instant the
+machine resumes — before the network resolver is back up — the service first runs
+`ptt wait-online`, which waits (up to two minutes) for DNS to work before the run starts.
+Without it, a run triggered on resume would fail every clone and the summary email with
+`Could not resolve host`. The gate is best-effort: if DNS never comes up it lets the run
+proceed anyway rather than blocking it, so it can never turn a healthy run into a failure.
+You can exercise it by hand with `ptt wait-online` (add `--host` / `--timeout` to tune it).
+
 Run that `enable-linger` line once (the only step needing sudo) so the routine fires even
 when you're not logged in. Confirm it's scheduled:
 
@@ -340,6 +349,7 @@ unattended).
 | `[email] refuses to send credentials…` | `smtp_security = "none"` with a username only works on a loopback host; use `starttls`/`ssl` for a remote host. |
 | Project shows `not a GitHub repo`    | Its `origin` remote must point at github.com.                         |
 | No email arrived                     | Check `on` policy; look for a `.email-failed` marker in the run dir.  |
+| All projects `failed (Could not resolve host)` on a resume-triggered run | Network wasn't up yet when the timer fired; the `wait-online` gate covers this — if it predates this fix, re-run `ptt install <routine>`. |
 | Action shown as `(unverified)`       | Claude claimed a PR/issue `gh` couldn't confirm — check `git.log`.    |
 | Project `failed (timeout)`           | Raise `timeout_minutes` for the routine.                             |
 | `No such file or directory: 'claude'` under the timer | The unit's baked `PATH` is stale or predates this fix — re-run `ptt install <routine>` from a shell where `claude` is on `PATH`. |
