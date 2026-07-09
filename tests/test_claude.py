@@ -198,6 +198,33 @@ def test_run_claude_retries_then_gives_up_on_persistent_529(
     assert "529" in retries_log.read_text()
 
 
+def test_run_claude_clears_stale_result_between_retries(
+    fake_bin, tmp_path, monkeypatch
+):
+    # A prior attempt that writes .ptt-result.json then dies non-zero must not
+    # leave a stale success claim for a later failed attempt to be reconciled
+    # against — otherwise a failed run would be reported as success.
+    monkeypatch.setenv("PTT_FAKE_MODE", "api_error_stale_result")
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    sleeper = _Sleeper()
+    rc, timed_out = claude.run_claude(
+        _routine(),
+        wt,
+        "prompt",
+        tmp_path / "o.jsonl",
+        tmp_path / "e",
+        timeout_s=10,
+        max_retries=1,
+        retry_base_s=0.01,
+        sleep=sleeper,
+    )
+    assert rc == 1 and timed_out is False
+    assert len(sleeper.delays) == 1  # first attempt wrote the result, then retried
+    # the stale success result must be gone after the failed final attempt
+    assert not (wt / ".ptt-result.json").exists()
+
+
 def test_run_claude_succeeds_after_transient_529(fake_bin, tmp_path, monkeypatch):
     monkeypatch.setenv("PTT_FAKE_MODE", "api_error_then_pr")
     wt = tmp_path / "wt"

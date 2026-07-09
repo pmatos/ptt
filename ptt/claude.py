@@ -26,6 +26,10 @@ from ptt import models as m
 # deliberately absent — retrying it would only waste time.
 RETRYABLE_API_STATUSES = frozenset({408, 429, 500, 502, 503, 504, 529})
 
+# The file Claude writes to report its outcome; run_claude clears it before each
+# attempt so a retry is never reconciled against a stale earlier claim.
+RESULT_FILENAME = ".ptt-result.json"
+
 RESULT_FOOTER = """\
 ---
 After completing the task above, you are running unattended via `ptt`. When the
@@ -92,7 +96,14 @@ def run_claude(
     are never retried. The stdout/stderr logs hold the last attempt; each retry is
     noted in a sibling `claude.retries.log`."""
     retries = max(0, max_retries)  # always at least one attempt
+    result_file = worktree / RESULT_FILENAME
     for attempt in range(retries + 1):
+        # Judge each attempt on its own result file: a prior attempt that wrote
+        # .ptt-result.json and then died non-zero must not leave a stale claim for
+        # a later failed attempt to be reconciled against (that would report a
+        # failed run as success). See PR #17 review.
+        with contextlib.suppress(FileNotFoundError):
+            result_file.unlink()
         rc, timed_out = _run_once(
             routine, worktree, prompt_text, stdout_path, stderr_path, timeout_s
         )
