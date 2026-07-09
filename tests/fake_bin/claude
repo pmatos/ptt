@@ -2,10 +2,12 @@
 """Fake `claude` for ptt tests.
 
 Behaviour switched via $PTT_FAKE_MODE: none|pr|unverified|issue_opened|
-issue_closed|commit|error|timeout. Reads (and discards) the prompt on stdin, emits a
-line of canned stream-json, and writes `.ptt-result.json` in cwd. For the `pr`
-and `issue_*` modes it also drops marker files that the fake `gh` reads, so the
-before/after gh snapshot shows a real delta.
+issue_closed|commit|error|timeout. Reads (and discards) the prompt on stdin, then
+emits canned stream-json. The claimed outcome is delivered the way the real
+`--json-schema` guard delivers it: as `structured_output` on the final `result`
+event (never a `.ptt-result.json` file). For the `pr` and `issue_*` modes it also
+drops marker files that the fake `gh` reads, so the before/after gh snapshot shows
+a real delta.
 """
 import json
 import os
@@ -20,7 +22,7 @@ print(json.dumps({"type": "system", "subtype": "fake_claude", "mode": mode}))
 
 
 def result(d):
-    (cwd / ".ptt-result.json").write_text(json.dumps(d))
+    print(json.dumps({"type": "result", "subtype": "success", "structured_output": d}))
 
 
 if mode == "pr":

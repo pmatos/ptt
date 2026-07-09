@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from ptt import claude
@@ -26,7 +27,9 @@ def _routine(permission_mode=m.PermissionMode.BYPASS, model=None, effort=None):
 def test_build_prompt_appends_result_footer():
     out = claude.build_prompt("Do the audit.")
     assert "Do the audit." in out
-    assert ".ptt-result.json" in out
+    # The result contract is enforced by --json-schema, so the footer describes the
+    # fields but no longer tells the model to hand-write a result file.
+    assert ".ptt-result.json" not in out
     for field in ("status", "action", "url", "title", "summary"):
         assert field in out
 
@@ -56,6 +59,24 @@ def test_build_argv_accept_edits_uses_permission_mode():
     assert "--dangerously-skip-permissions" not in argv
 
 
+def test_build_argv_forces_structured_output_schema():
+    argv = claude.build_argv(_routine())
+    assert "--json-schema" in argv
+    schema = json.loads(argv[argv.index("--json-schema") + 1])
+    assert schema["type"] == "object"
+    assert set(schema["required"]) == {"status", "action", "url", "title", "summary"}
+    assert set(schema["properties"]["status"]["enum"]) == {s.value for s in m.Status}
+    assert set(schema["properties"]["action"]["enum"]) == {a.value for a in m.Action}
+
+
+def test_build_argv_disallows_schedule_and_wait_tools():
+    argv = claude.build_argv(_routine())
+    assert "--disallowedTools" in argv
+    i = argv.index("--disallowedTools")
+    # Variadic flag is last, so the tool names run to the end of argv.
+    assert argv[i + 1 :] == ["ScheduleWakeup", "Monitor", "CronCreate"]
+
+
 def test_build_argv_model_present_and_absent():
     assert "--model" not in claude.build_argv(_routine(model=None))
     argv = claude.build_argv(_routine(model="claude-opus-4-8"))
@@ -68,15 +89,17 @@ def test_build_argv_effort_present_and_absent():
     assert "--effort" in argv and "high" in argv
 
 
-def test_run_claude_success_writes_result_and_logs(fake_bin, tmp_path, monkeypatch):
+def test_run_claude_success_emits_structured_output_and_logs(
+    fake_bin, tmp_path, monkeypatch
+):
     monkeypatch.setenv("PTT_FAKE_MODE", "pr")
     wt = tmp_path / "wt"
     wt.mkdir()
     out, err = tmp_path / "o.jsonl", tmp_path / "e.log"
     rc, timed_out = claude.run_claude(_routine(), wt, "prompt", out, err, timeout_s=10)
     assert rc == 0 and timed_out is False
-    assert (wt / ".ptt-result.json").is_file()
-    assert out.read_text().strip()  # stream-json captured
+    assert not (wt / ".ptt-result.json").exists()  # no hand-written file anymore
+    assert "structured_output" in out.read_text()  # result delivered via stream-json
 
 
 def test_run_claude_error_returns_exit_code(fake_bin, tmp_path, monkeypatch):

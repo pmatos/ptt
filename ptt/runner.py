@@ -171,7 +171,7 @@ def _run_claude_and_reconcile(
         logstore.claude_stderr_path(pdir),
         routine.timeout_minutes * 60,
     )
-    claimed = outcomes.read_result_file(dest)
+    claimed = outcomes.read_structured_output(logstore.claude_stdout_path(pdir))
     post, post_ok = outcomes.gh_snapshot(dest, log)
     fields = outcomes.reconcile(
         claimed,

@@ -255,10 +255,14 @@ a PR, the branch is pushed to the remote; the clone is deleted afterward.
 
 Because the clone is deleted the moment Claude's turn ends, each run is **one-shot**: Claude
 is not re-invoked, so the prompt footer tells it to verify synchronously and finish within
-the turn. If Claude backgrounds a long-running check (e.g. a full test suite) and ends its
-turn waiting to be resumed, that work is killed and any local-only commit is discarded — the
-run is then recorded as an error (`no result file`). This is why the footer insists on
-pushing the branch and writing `.ptt-result.json` before ending.
+the turn, and ptt disables the schedule-and-wait tools (`ScheduleWakeup`, `Monitor`,
+`CronCreate`) so it can't background work and stall. If Claude still backgrounds a
+long-running check (e.g. a full test suite) and ends its turn waiting to be resumed, that
+work is killed and any local-only commit is discarded. Claude's final result is forced to a
+fixed JSON schema via `claude --json-schema` (it comes back in the stream-json `result`
+event's `structured_output`), so the outcome no longer depends on Claude remembering to write
+a file; if it somehow ends with no valid result and `gh` shows no new PR/issue, the run is
+recorded as an error (`claude produced no structured result`).
 
 ## 9. Inspect what happened
 

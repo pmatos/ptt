@@ -1,16 +1,48 @@
 """Invoke `claude -p` headless against a worktree. Builds the effective prompt
 (routine prompt + a fixed result-reporting footer) and the argv, and runs it in
-its own process group so a timeout can kill the whole tree."""
+its own process group so a timeout can kill the whole tree.
+
+Two harness-level guards make the one-shot contract robust: `--json-schema` forces
+Claude's final message to be a schema-valid result object (surfaced in the
+stream-json `result` event's `structured_output`, so ptt no longer depends on the
+model remembering to write a file), and `--disallowedTools` removes the
+schedule-and-wait tools that tempt the model to background work and end its turn
+expecting a re-invocation that never comes."""
 
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import signal
 import subprocess
 from pathlib import Path
 
 from ptt import models as m
+
+# The exact result contract, enforced by `--json-schema` so the final message
+# cannot end the run without conforming. Enum values mirror m.Status / m.Action.
+RESULT_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "string", "enum": ["success", "no_action", "error"]},
+        "action": {
+            "type": "string",
+            "enum": ["pr", "issue_opened", "issue_closed", "commit", "none"],
+        },
+        "url": {"type": ["string", "null"]},
+        "title": {"type": "string"},
+        "summary": {"type": "string"},
+    },
+    "required": ["status", "action", "url", "title", "summary"],
+    "additionalProperties": False,
+}
+
+# Tools that let Claude background work and end its turn to "be resumed" — which
+# never happens in a one-shot headless run, so the work is killed and lost. Denied
+# by bare name so they are removed from the toolset entirely. (Agent/subagents are
+# left enabled: they run to completion within the turn.)
+DISALLOWED_TOOLS = ["ScheduleWakeup", "Monitor", "CronCreate"]
 
 RESULT_FOOTER = """\
 ---
@@ -26,10 +58,9 @@ and its result is lost when your turn ends. Push the branch and open the PR
 within this turn; an unpushed commit is discarded when the throwaway clone is
 removed.
 
-Always write a file named `.ptt-result.json` in the repository root before you
-end — even if you failed or ran out of time (use status "error" with a summary of
-how far you got) — a single JSON object describing what you did, with exactly
-these keys:
+When you end, report the outcome as the structured result ptt requires — even if
+you failed or ran out of time (use status "error" with a summary of how far you
+got): a single object with these keys:
 
   {
     "status":  "success" | "no_action" | "error",
@@ -55,6 +86,9 @@ def build_argv(routine: m.Routine) -> list[str]:
         argv += ["--model", routine.model]
     if routine.effort:
         argv += ["--effort", str(routine.effort)]
+    argv += ["--json-schema", json.dumps(RESULT_SCHEMA)]
+    # Variadic flag: keep it last so it consumes only the tool names that follow.
+    argv += ["--disallowedTools", *DISALLOWED_TOOLS]
     return argv
 
 

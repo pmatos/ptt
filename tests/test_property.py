@@ -56,7 +56,7 @@ def test_slug_from_url_is_none_or_a_single_slash_slug(url):
     assert slug is None or slug.count("/") == 1
 
 
-# --- outcomes.reconcile / read_result_file -----------------------------------
+# --- outcomes.reconcile / read_structured_output -----------------------------
 
 RESULT_KEYS = {
     "status",
@@ -132,14 +132,35 @@ def test_reconcile_is_total_and_well_formed(
 
 
 _JSON_VALUES = st.none() | st.booleans() | st.integers() | TEXT
-_JSON_OBJECTS = st.builds(json.dumps, st.dictionaries(TEXT, _JSON_VALUES, max_size=6))
+_STRUCTURED = st.none() | _JSON_VALUES | st.dictionaries(TEXT, _JSON_VALUES, max_size=6)
+
+
+@st.composite
+def _stream_content(draw):
+    """Arbitrary stream-json-ish stdout: junk text lines, arbitrary JSON events,
+    and `result` events carrying an arbitrary `structured_output` payload."""
+    lines = []
+    for _ in range(draw(st.integers(min_value=0, max_value=5))):
+        kind = draw(st.sampled_from(["text", "obj", "result"]))
+        if kind == "text":
+            lines.append(draw(TEXT))
+        elif kind == "obj":
+            lines.append(
+                json.dumps(draw(st.dictionaries(TEXT, _JSON_VALUES, max_size=6)))
+            )
+        else:
+            lines.append(
+                json.dumps({"type": "result", "structured_output": draw(_STRUCTURED)})
+            )
+    return "\n".join(lines)
 
 
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=None)
-@given(content=TEXT | _JSON_OBJECTS)
-def test_read_result_file_never_raises(tmp_path, content):
-    (tmp_path / ".ptt-result.json").write_text(content)
-    result = outcomes.read_result_file(tmp_path)
+@given(content=_stream_content())
+def test_read_structured_output_never_raises(tmp_path, content):
+    out = tmp_path / "claude.stdout.jsonl"
+    out.write_text(content)
+    result = outcomes.read_structured_output(out)
     assert result is None or isinstance(result, m.Outcome)
 
 

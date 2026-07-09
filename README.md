@@ -19,9 +19,12 @@ deletes it when the run finishes. When it runs, for each project ptt:
    never run in, fetched into, or branched);
 2. runs `claude -p` headless in that clone, with a footer instructing Claude to do
    the task synchronously (it is a one-shot run — no re-invocation, so nothing may
-   be deferred to a background task), open a PR/issue with `gh` when warranted, and
-   write a `.ptt-result.json`;
-3. detects the outcome from that file, **cross-checked** against a `gh` PR/issue diff;
+   be deferred to a background task) and open a PR/issue with `gh` when warranted.
+   Two harness guards make this stick: `--json-schema` forces Claude's final message
+   to be a fixed result object, and `--disallowedTools` removes the schedule-and-wait
+   tools so it can't background work and stall;
+3. detects the outcome from that structured result, **cross-checked** against a `gh`
+   PR/issue diff;
 4. deletes the clone; the pushed branch stays on the remote.
 
 Then it emails one summary per run over SMTP (any provider) and writes full logs to disk.

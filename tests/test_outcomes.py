@@ -55,10 +55,10 @@ def test_gh_observed_when_no_result_file():
     assert r["source"] == m.Source.GH
 
 
-def test_missing_result_file_no_delta_is_error():
+def test_missing_result_no_delta_is_error():
     r = outcomes.reconcile(None, snap(), snap(), True, True, 0, False)
     assert r["status"] == m.Status.ERROR
-    assert "no result file" in r["reason"]
+    assert "no structured result" in r["reason"]
 
 
 def test_claude_nonzero_no_file_uses_stderr_reason():
@@ -137,7 +137,7 @@ def test_ephemeral_commit_that_opened_pr_uses_gh_observed():
     assert r["status"] == m.Status.SUCCESS
 
 
-# --- gh_snapshot / read_result_file ---
+# --- gh_snapshot / read_structured_output ---
 
 
 def test_gh_snapshot_reads_markers(fake_bin, tmp_path):
@@ -158,24 +158,45 @@ def test_gh_snapshot_command_failure_sets_ok_false(monkeypatch, tmp_path):
     assert ok is False
 
 
-def test_read_result_file(tmp_path):
-    (tmp_path / ".ptt-result.json").write_text(
-        json.dumps(
-            {
+def _write_stream(path, *events):
+    path.write_text("".join(json.dumps(e) + "\n" for e in events))
+
+
+def test_read_structured_output(tmp_path):
+    out = tmp_path / "claude.stdout.jsonl"
+    _write_stream(
+        out,
+        {"type": "system", "subtype": "init"},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}},
+        {
+            "type": "result",
+            "subtype": "success",
+            "structured_output": {
                 "status": "success",
                 "action": "pr",
                 "url": "u",
                 "title": "t",
                 "summary": "s",
-            }
-        )
+            },
+        },
     )
-    o = outcomes.read_result_file(tmp_path)
+    o = outcomes.read_structured_output(out)
     assert o is not None
     assert o.action == m.Action.PR
+    assert o.url == "u"
 
 
-def test_read_result_file_missing_or_garbage(tmp_path):
-    assert outcomes.read_result_file(tmp_path) is None
-    (tmp_path / ".ptt-result.json").write_text("{not json")
-    assert outcomes.read_result_file(tmp_path) is None
+def test_read_structured_output_missing_or_invalid(tmp_path):
+    out = tmp_path / "claude.stdout.jsonl"
+    assert outcomes.read_structured_output(out) is None  # no file
+    out.write_text("{not json\n")
+    assert outcomes.read_structured_output(out) is None  # unparseable, no result event
+    _write_stream(out, {"type": "result", "subtype": "success"})
+    assert (
+        outcomes.read_structured_output(out) is None
+    )  # result but no structured_output
+    _write_stream(
+        out,
+        {"type": "result", "structured_output": {"status": "bogus", "action": "none"}},
+    )
+    assert outcomes.read_structured_output(out) is None  # invalid enum value
