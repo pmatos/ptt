@@ -252,6 +252,16 @@ claude -p \
 - **Timeout:** the process is started in its own process group; on timeout the whole
   group is killed (`SIGTERM` then `SIGKILL`) and the project is marked
   `status=error, action=none` with reason `timeout`.
+- **Transient API-error retry:** `claude` retries API failures internally, but a
+  sustained overload window exhausts them and it exits non-zero with an
+  `api_error_status` (429/5xx, e.g. `529 Overloaded`) in its stream-json output.
+  `claude.py` parses that terminal `result` record and, for a retryable status, re-invokes
+  `claude` up to `api_max_retries` more times with exponential backoff (`api_retry_base_seconds`,
+  doubling each retry, capped at `api_retry_cap_seconds`). These three knobs live in
+  `[defaults]` and are per-routine overridable (defaults 3 / 15s / 120s; `api_max_retries = 0`
+  disables the outer retry). Each retry is recorded in a sibling `claude.retries.log`; the
+  canonical `claude.stdout.jsonl`/`.stderr.log` keep the final attempt. Timeouts and
+  non-API failures are never retried.
 
 ## 10. Security considerations
 
@@ -321,7 +331,8 @@ marker in the run dir, attempt **one** retry, then give up without failing the r
 | Missing config/token/`gh`/`claude` | `ptt doctor` and run preflight fail fast with a clear message, before any work. |
 | Project origin missing / not github.com | That project → `error`; others continue. |
 | `git clone`/`gh` command fails     | Captured to `git.log`; project → `error`; the clone is still removed. |
-| Claude non-zero exit               | Project → `error` with exit code + last stderr lines. |
+| Claude transient API error (429/5xx, e.g. 529) | Re-invoke with exponential backoff (up to `api_max_retries`, configurable); retries logged to `claude.retries.log`. Project → `error` only if every attempt fails. |
+| Claude non-zero exit (non-API)     | Project → `error` with exit code + last stderr lines. |
 | Claude timeout                     | Process group killed; project → `error (timeout)`. |
 | `.ptt-result.json` missing/bad     | Fall back to gh delta; else `error (no result file)`. |
 | Postmark send fails                | Logged + marker + one retry; run record unaffected. |
@@ -397,6 +408,6 @@ Claude, and no real GitHub:
 
 - Parallel project execution with a concurrency cap.
 - Additional notifiers (Slack, desktop) behind a `notify` interface.
-- Retry/backoff for transient `claude`/`gh` failures.
+- Retry/backoff for transient `gh` failures (the `claude` API-error case is handled — §9).
 - A `ptt status` dashboard or simple local web view over `run.json` history.
 - Log retention/pruning policy (v1 keeps everything).

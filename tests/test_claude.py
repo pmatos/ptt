@@ -1,7 +1,18 @@
+import json
 from pathlib import Path
 
 from ptt import claude
 from ptt import models as m
+
+
+class _Sleeper:
+    """Records backoff delays instead of sleeping, so retry tests stay instant."""
+
+    def __init__(self):
+        self.delays = []
+
+    def __call__(self, delay):
+        self.delays.append(delay)
 
 
 def _routine(permission_mode=m.PermissionMode.BYPASS, model=None, effort=None):
@@ -93,7 +104,133 @@ def test_run_claude_timeout_is_killed(fake_bin, tmp_path, monkeypatch):
     monkeypatch.setenv("PTT_FAKE_MODE", "timeout")
     wt = tmp_path / "wt"
     wt.mkdir()
+    sleeper = _Sleeper()
     rc, timed_out = claude.run_claude(
-        _routine(), wt, "prompt", tmp_path / "o", tmp_path / "e", timeout_s=0.5
+        _routine(),
+        wt,
+        "prompt",
+        tmp_path / "o",
+        tmp_path / "e",
+        timeout_s=0.5,
+        sleep=sleeper,
     )
     assert rc == 124 and timed_out is True
+    assert sleeper.delays == []  # a timeout is never retried
+
+
+def test_backoff_delay_is_exponential_and_capped():
+    assert claude.backoff_delay(0, base=10.0, cap=100.0) == 10.0
+    assert claude.backoff_delay(1, base=10.0, cap=100.0) == 20.0
+    assert claude.backoff_delay(2, base=10.0, cap=100.0) == 40.0
+    # grows past the cap → clamped
+    assert claude.backoff_delay(10, base=10.0, cap=100.0) == 100.0
+
+
+def test_last_api_error_status_detects_529(tmp_path):
+    log = tmp_path / "o.jsonl"
+    log.write_text(
+        json.dumps({"type": "system", "subtype": "init"})
+        + "\n"
+        + json.dumps({"type": "assistant", "error": "server_error"})
+        + "\n"
+        + json.dumps(
+            {
+                "type": "result",
+                "subtype": "success",
+                "is_error": True,
+                "api_error_status": 529,
+            }
+        )
+        + "\n"
+    )
+    assert claude.last_api_error_status(log) == 529
+
+
+def test_last_api_error_status_none_on_success(tmp_path):
+    log = tmp_path / "o.jsonl"
+    log.write_text(
+        json.dumps(
+            {
+                "type": "result",
+                "subtype": "success",
+                "is_error": False,
+                "api_error_status": None,
+                "num_turns": 5,
+            }
+        )
+        + "\n"
+    )
+    assert claude.last_api_error_status(log) is None
+
+
+def test_last_api_error_status_none_on_missing_or_garbage(tmp_path):
+    assert claude.last_api_error_status(tmp_path / "does-not-exist") is None
+    log = tmp_path / "garbage.jsonl"
+    log.write_text("not json\n{partial\n\n")
+    assert claude.last_api_error_status(log) is None
+
+
+def test_run_claude_retries_then_gives_up_on_persistent_529(
+    fake_bin, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PTT_FAKE_MODE", "api_error")
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    out = tmp_path / "o.jsonl"
+    sleeper = _Sleeper()
+    rc, timed_out = claude.run_claude(
+        _routine(),
+        wt,
+        "prompt",
+        out,
+        tmp_path / "e",
+        timeout_s=10,
+        max_retries=2,
+        retry_base_s=0.01,
+        retry_cap_s=10,
+        sleep=sleeper,
+    )
+    assert rc == 1 and timed_out is False
+    # 2 retries → 3 attempts total → 2 backoff sleeps, exponential.
+    assert sleeper.delays == [0.01, 0.02]
+    retries_log = out.parent / "claude.retries.log"
+    assert retries_log.is_file()
+    assert "529" in retries_log.read_text()
+
+
+def test_run_claude_succeeds_after_transient_529(fake_bin, tmp_path, monkeypatch):
+    monkeypatch.setenv("PTT_FAKE_MODE", "api_error_then_pr")
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    sleeper = _Sleeper()
+    rc, timed_out = claude.run_claude(
+        _routine(),
+        wt,
+        "prompt",
+        tmp_path / "o.jsonl",
+        tmp_path / "e",
+        timeout_s=10,
+        retry_base_s=0.01,
+        sleep=sleeper,
+    )
+    assert rc == 0 and timed_out is False
+    assert len(sleeper.delays) == 1  # failed once, then succeeded
+    assert (wt / ".ptt-result.json").is_file()
+
+
+def test_run_claude_does_not_retry_non_api_error(fake_bin, tmp_path, monkeypatch):
+    monkeypatch.setenv("PTT_FAKE_MODE", "error")  # exits 3, no api_error_status
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    sleeper = _Sleeper()
+    rc, timed_out = claude.run_claude(
+        _routine(),
+        wt,
+        "prompt",
+        tmp_path / "o",
+        tmp_path / "e",
+        timeout_s=10,
+        sleep=sleeper,
+    )
+    assert rc == 3 and timed_out is False
+    assert sleeper.delays == []

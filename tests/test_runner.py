@@ -69,6 +69,29 @@ def test_run_pr_is_verified_and_cleaned(fake_bin, github_repo, tmp_path, monkeyp
     assert not (r.work_dir / run.run_id).exists()
 
 
+def test_run_threads_retry_knobs_into_claude(
+    fake_bin, github_repo, tmp_path, monkeypatch
+):
+    captured = {}
+
+    def fake_run_claude(routine, worktree, prompt_text, out, err, timeout_s, **kwargs):
+        captured.update(kwargs)
+        out.write_text("{}\n")
+        return 0, False
+
+    monkeypatch.setattr(runner.claude, "run_claude", fake_run_claude)
+    r = make_routine(tmp_path, [github_repo])
+    r.api_max_retries = 7
+    r.api_retry_base_seconds = 3.5
+    r.api_retry_cap_seconds = 42.0
+    runner.run_routine(r, make_global())
+    assert captured == {
+        "max_retries": 7,
+        "retry_base_s": 3.5,
+        "retry_cap_s": 42.0,
+    }
+
+
 def test_run_local_project_clones_and_leaves_checkout_untouched(
     fake_bin, github_repo, tmp_path, monkeypatch
 ):
