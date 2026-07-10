@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -49,30 +50,73 @@ def test_render_service_gates_on_wait_online_before_exec():
     assert s.index("ExecStartPre=") < s.index("ExecStart=")
 
 
-def test_render_service_bakes_path_when_given():
+def test_render_service_bakes_path_under_ptt_path_when_given():
     s = schedule.render_service("audit", "/usr/bin/ptt", "/home/me/.local/bin:/usr/bin")
-    # Quoted so systemd doesn't split the value on whitespace into extra assignments.
-    assert 'Environment="PATH=/home/me/.local/bin:/usr/bin"' in s
-    # PATH must be set before ExecStart so the subprocess `claude` lookup can see it.
-    assert s.index('Environment="PATH=') < s.index("ExecStart=")
+    # Baked under PTT_PATH — a name the secrets-only env file never sets — so an
+    # env-file PATH= can't override it (EnvironmentFile= wins over a bare PATH=).
+    # `ptt run` merges PTT_PATH into PATH at runtime.
+    assert 'Environment="PTT_PATH=/home/me/.local/bin:/usr/bin"' in s
+    # Never bake a bare PATH= (see above), so there is nothing for the env file to win.
+    assert 'Environment="PATH=' not in s
+    # Set before ExecStart so `ptt run` sees PTT_PATH.
+    assert s.index('Environment="PTT_PATH=') < s.index("ExecStart=")
 
 
 def test_render_service_quotes_path_with_spaces():
     # A PATH entry containing a space must stay intact — the whole assignment is
     # wrapped in double quotes rather than split by systemd at the space.
     s = schedule.render_service("audit", "/usr/bin/ptt", "/opt/my tools/bin:/usr/bin")
-    assert 'Environment="PATH=/opt/my tools/bin:/usr/bin"' in s
+    assert 'Environment="PTT_PATH=/opt/my tools/bin:/usr/bin"' in s
 
 
 def test_render_service_escapes_quotes_and_backslashes_in_path():
     s = schedule.render_service("audit", "/usr/bin/ptt", '/a\\b/bin:/q"x/bin')
-    assert 'Environment="PATH=/a\\\\b/bin:/q\\"x/bin"' in s
+    assert 'Environment="PTT_PATH=/a\\\\b/bin:/q\\"x/bin"' in s
 
 
 def test_render_service_omits_path_line_when_empty():
-    assert 'Environment="PATH=' not in schedule.render_service(
-        "audit", "/usr/bin/ptt", ""
-    )
+    s = schedule.render_service("audit", "/usr/bin/ptt", "")
+    assert 'Environment="PTT_PATH=' not in s
+    assert 'Environment="PATH=' not in s
+
+
+def test_apply_baked_path_prepends_and_dedups(monkeypatch):
+    monkeypatch.setenv("PTT_PATH", "/home/me/.local/bin:/usr/bin")
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    schedule.apply_baked_path()
+    # Baked entries first, then any current entry not already present; no dupes.
+    assert os.environ["PATH"] == "/home/me/.local/bin:/usr/bin:/bin"
+
+
+def test_apply_baked_path_preserves_extra_env_file_dirs(monkeypatch):
+    # A dir the env-file's PATH added keeps its place, appended after the baked dirs.
+    monkeypatch.setenv("PTT_PATH", "/home/me/.local/bin:/usr/bin")
+    monkeypatch.setenv("PATH", "/opt/extra/bin:/usr/bin")
+    schedule.apply_baked_path()
+    assert os.environ["PATH"] == "/home/me/.local/bin:/usr/bin:/opt/extra/bin"
+
+
+def test_apply_baked_path_overrides_stale_env_file_path(monkeypatch):
+    # Regression for #15: a stale/sparse PATH (what an env-file PATH= leaves under the
+    # timer) must not hide the baked bin dir where `claude` actually lives.
+    monkeypatch.setenv("PTT_PATH", "/home/me/.local/bin:/usr/bin")
+    monkeypatch.setenv("PATH", "/usr/bin")  # omits ~/.local/bin
+    schedule.apply_baked_path()
+    assert os.environ["PATH"].split(":")[0] == "/home/me/.local/bin"
+
+
+def test_apply_baked_path_noop_without_ptt_path(monkeypatch):
+    monkeypatch.delenv("PTT_PATH", raising=False)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    schedule.apply_baked_path()
+    assert os.environ["PATH"] == "/usr/bin:/bin"
+
+
+def test_apply_baked_path_noop_when_ptt_path_empty(monkeypatch):
+    monkeypatch.setenv("PTT_PATH", "")
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    schedule.apply_baked_path()
+    assert os.environ["PATH"] == "/usr/bin:/bin"
 
 
 def test_render_timer_has_calendar_and_persistent():
@@ -89,8 +133,9 @@ def test_install_writes_units_and_reloads(all_ok, tmp_xdg, monkeypatch):
     svc = d / "ptt-audit.service"
     assert svc.is_file()
     assert (d / "ptt-audit.timer").is_file()
-    # install captures the live PATH so `claude` resolves under systemd's sparse env.
-    assert 'Environment="PATH=/home/me/.local/bin:/usr/bin"' in svc.read_text()
+    # install captures the live PATH (baked under PTT_PATH) so `claude` resolves
+    # under systemd's sparse env once `ptt run` merges it back into PATH.
+    assert 'Environment="PTT_PATH=/home/me/.local/bin:/usr/bin"' in svc.read_text()
     assert "enable-linger" in note  # surfaces the one-time linger step
 
 

@@ -379,6 +379,14 @@ WantedBy=timers.target
 
 Then: `systemctl --user daemon-reload && systemctl --user enable --now ptt-<routine>.timer`.
 
+The service also bakes the install-time `PATH` so `claude`/`git`/`gh` resolve as they do
+in the user's shell (the systemd user manager's own `PATH` is sparse). It is baked as
+`Environment="PTT_PATH=…"` rather than `PATH` itself, because `systemd.exec(5)` has
+`EnvironmentFile=` override `Environment=` order-independently — so a stale `PATH=` in the
+secrets env file would otherwise win. `ptt run` folds `PTT_PATH` into `PATH` in-process
+before shelling out (`schedule.apply_baked_path`), which beats any unit `PATH` and needs no
+env-file parsing.
+
 `ptt install` validates the schedule via `systemd-analyze calendar "<schedule>"` first,
 and prints the **one-time** requirement (run by the user, needs sudo):
 `sudo loginctl enable-linger pmatos` — so timers fire while logged out. `ptt uninstall`

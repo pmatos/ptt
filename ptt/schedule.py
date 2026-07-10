@@ -18,6 +18,14 @@ class ScheduleError(Exception):
     pass
 
 
+# The install-time PATH is baked into the unit under this name rather than PATH
+# itself: systemd.exec(5) has EnvironmentFile= override Environment= order-
+# independently, so a stale `PATH=` in the (secrets-only) env file would win over a
+# baked `Environment="PATH=…"`. PTT_PATH is a name that file never sets, so it always
+# survives; `ptt run` merges it back into PATH at runtime (apply_baked_path).
+PATH_ENV_VAR = "PTT_PATH"
+
+
 def units_dir() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME")
     root = Path(base) if base else Path.home() / ".config"
@@ -41,12 +49,14 @@ def render_service(routine_name: str, ptt_cmd: str, path_env: str | None = None)
     # Bake the install-time PATH so `claude`/`git`/`gh` resolve the way they do in
     # the user's shell. The systemd user manager's own PATH is sparse and typically
     # omits e.g. ~/.local/bin, which would leave subprocess("claude") unfindable.
+    # It is baked under PTT_PATH (not PATH) so an env-file `PATH=` can't override it
+    # (see PATH_ENV_VAR); `ptt run` folds PTT_PATH into PATH at runtime.
     # The value is double-quoted (with C-style escaping) because systemd splits an
     # unquoted Environment= value on whitespace into separate assignments, which
     # would silently truncate a PATH entry that contains a space.
     if path_env:
         escaped = path_env.replace("\\", "\\\\").replace('"', '\\"')
-        lines.append(f'Environment="PATH={escaped}"')
+        lines.append(f'Environment="{PATH_ENV_VAR}={escaped}"')
     # A Persistent timer fires the moment the machine resumes from suspend, often
     # before DNS is back — which made every clone and the SMTP summary fail with
     # "Could not resolve host". Wait for the resolver first. The leading '-' tells
@@ -54,6 +64,29 @@ def render_service(routine_name: str, ptt_cmd: str, path_env: str | None = None)
     lines.append(f"ExecStartPre=-{ptt_cmd} wait-online")
     lines.append(f"ExecStart={ptt_cmd} run {routine_name}")
     return "\n".join(lines) + "\n"
+
+
+def apply_baked_path() -> None:
+    """Fold the install-time PATH baked under PTT_PATH (see render_service) back into
+    os.environ["PATH"], so `claude`/`git`/`gh` resolve as they did in the user's shell.
+
+    Doing this in-process at the start of `ptt run` wins unconditionally over whatever
+    PATH the unit resolved — including a stale `PATH=` an env file left behind — because
+    it happens after systemd has composed the environment and before any subprocess is
+    spawned, and it needs no env-file parsing. A no-op when PTT_PATH is unset/empty
+    (e.g. a manual `ptt run` from a normal shell, which already has a good PATH)."""
+    baked = os.environ.get(PATH_ENV_VAR, "")
+    if not baked:
+        return
+    seen: set[str] = set()
+    merged: list[str] = []
+    # Baked dirs first so they win tool resolution; keep any extra dirs the unit's PATH
+    # carried, appended and de-duplicated. Empty segments (which mean CWD) are dropped.
+    for entry in baked.split(os.pathsep) + os.environ.get("PATH", "").split(os.pathsep):
+        if entry and entry not in seen:
+            seen.add(entry)
+            merged.append(entry)
+    os.environ["PATH"] = os.pathsep.join(merged)
 
 
 def render_timer(routine_name: str, schedule: str) -> str:
