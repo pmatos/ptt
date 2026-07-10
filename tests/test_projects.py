@@ -18,12 +18,29 @@ def test_home_local_path_is_expanded(tmp_path, monkeypatch):
     assert s.name == "a"
 
 
-def test_owner_repo_shorthand_is_remote():
-    s = projects.parse("pmatos/ptt")
+def test_gh_prefixed_shorthand_is_remote():
+    s = projects.parse("gh:pmatos/ptt")
     assert s.is_remote is True
     assert s.location == "https://github.com/pmatos/ptt.git"
     assert s.name == "ptt"
-    assert s.raw == "pmatos/ptt"
+    assert s.raw == "gh:pmatos/ptt"
+
+
+def test_gh_prefix_tolerates_trailing_dotgit():
+    # `gh:owner/repo.git` must not double the suffix into `repo.git.git`.
+    s = projects.parse("gh:pmatos/ptt.git")
+    assert s.is_remote is True
+    assert s.location == "https://github.com/pmatos/ptt.git"
+    assert s.name == "ptt"
+
+
+def test_bare_owner_repo_is_now_a_local_path():
+    # Regression for #9: a bare one-slash entry is a relative local checkout,
+    # not a GitHub remote — remotes must opt in with `gh:` or a full URL.
+    s = projects.parse("dev/repo")
+    assert s.is_remote is False
+    assert s.location == str(Path("dev/repo").expanduser())
+    assert s.name == "repo"
 
 
 def test_https_url_is_remote_and_strips_dotgit():

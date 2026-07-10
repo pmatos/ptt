@@ -40,7 +40,7 @@ nothing / failed); keep full logs for debugging."*
 - **Run** — one execution of a routine. Fans out over the routine's projects
   (sequentially) and produces exactly one summary email.
 - **Run id** — a sortable UTC timestamp identifying a run, e.g. `20260630T050000Z`.
-- **Project** — a GitHub repository, given as an `owner/repo` slug, a git URL, or a local
+- **Project** — a GitHub repository, given as a `gh:owner/repo` slug, a git URL, or a local
   checkout whose `origin` is on github.com (github origin required so PRs/issues can be
   created). It is resolved to a clone URL and **cloned fresh** per run; a local checkout,
   if any, is used read-only (to read its `origin`) and never run in.
@@ -130,7 +130,7 @@ schedule = "Mon..Fri 05:00"              # systemd OnCalendar syntax
 
 projects = [
   "~/dev/foo",                 # a local checkout (read-only, for its origin URL)
-  "pmatos/rightkey",           # an owner/repo slug
+  "gh:pmatos/rightkey",        # an owner/repo slug (gh: marks it remote)
   "git@github.com:pmatos/bar.git",   # or a git URL
 ]
 
@@ -145,10 +145,11 @@ Validation rules:
 - `name` matches the filename stem and `^[a-z0-9][a-z0-9-]*$` (used in unit names,
   branch names, paths).
 - `prompt` resolves (after `~` expansion) to a readable file.
-- `projects` is non-empty. Each entry is a local path, an `owner/repo` slug, or a git URL;
-  it must resolve to a github.com remote (a local path is read for its `origin`).
-  Resolution happens at run time, not load time, so editing config never needs the repos
-  present.
+- `projects` is non-empty. Each entry is a local path, a `gh:owner/repo` slug, or a git URL;
+  it must resolve to a github.com remote (a local path is read for its `origin`). The `gh:`
+  marker is required for the slug form so a bare relative path (`dev/repo`) is classified as
+  local, not silently cloned from `github.com/dev/repo`. Resolution happens at run time, not
+  load time, so editing config never needs the repos present.
 - `schedule` is a non-empty string; it is validated by `systemd-analyze calendar`
   during `ptt install` (not parsed by ptt itself).
 
@@ -191,7 +192,7 @@ unset.
 2. **Create run dir.** `~/.local/state/ptt/runs/<routine>/<run-id>/`, snapshot the
    prompt to `prompt.md`.
 3. **For each project, sequentially:**
-   1. **Resolve the entry** to a github.com clone URL (§3/§7.1): an `owner/repo` slug or a
+   1. **Resolve the entry** to a github.com clone URL (§3/§7.1): a `gh:owner/repo` slug or a
       git URL is used directly; a local path contributes only its `origin` URL (read-only).
    2. `git clone --single-branch --branch <base_branch> <url> <work_dir>/<run-id>/<name>`,
       then `git -C <clone> checkout -b ptt/<routine>/<run-id>`. The clone is standalone

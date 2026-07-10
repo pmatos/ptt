@@ -116,7 +116,7 @@ def test_run_remote_clone_pr_and_cleaned(
     fake_bin, remote_github_repo, tmp_path, monkeypatch
 ):
     monkeypatch.setenv("PTT_FAKE_MODE", "pr")
-    spec = proj.parse(remote_github_repo)  # "fake/repo" -> ephemeral clone
+    spec = proj.parse(remote_github_repo)  # "gh:fake/repo" -> ephemeral clone
     assert spec.is_remote is True
     r = make_routine(tmp_path, [spec])
     run = runner.run_routine(r, make_global())
@@ -124,7 +124,7 @@ def test_run_remote_clone_pr_and_cleaned(
     p = run.projects[0]
     assert p.action == m.Action.PR and p.verified is True
     assert p.name == "repo"
-    assert p.path == "fake/repo"
+    assert p.path == "gh:fake/repo"
     # the ephemeral clone (and the now-empty run-id parent) are removed
     dest = r.work_dir / run.run_id / p.name
     assert not dest.exists()

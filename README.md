@@ -10,7 +10,7 @@ of claude.ai/code Routines.
 ## How it works
 
 A **routine** is one prompt + a list of projects + a schedule. A project can be a
-**local checkout** on disk or a **remote GitHub repo** (`owner/repo` or a git URL); either
+**local checkout** on disk or a **remote GitHub repo** (`gh:owner/repo` or a git URL); either
 way ptt runs against a **fresh clone of its github.com remote** in a throwaway dir and
 deletes it when the run finishes. When it runs, for each project ptt:
 
@@ -37,7 +37,7 @@ Then it emails one summary per run over SMTP (any provider) and writes full logs
 - [uv](https://docs.astral.sh/uv/) (it provisions Python ≥ 3.11 automatically)
 - `claude`, `git`, and `gh` on `PATH`; `gh` authenticated (`gh auth login`)
 - Each project resolves to a github.com repo — a local checkout whose `origin` is on
-  github.com, or a remote given as `owner/repo` / a git URL. ptt always clones the remote
+  github.com, or a remote given as `gh:owner/repo` / a git URL. ptt always clones the remote
   fresh and deletes it after (a local checkout is used read-only, never run in)
 - An SMTP account for email — any provider (Postmark, SES, Gmail, self-hosted)
 
@@ -95,7 +95,7 @@ description = "Weekday refactoring audit"
 enabled = true
 prompt = "~/prompts/refactor-audit.md"
 schedule = "Mon..Fri 05:00"     # systemd OnCalendar syntax
-projects = ["~/dev/rightkey", "pmatos/ptt"]   # local path or owner/repo — both cloned fresh + deleted
+projects = ["~/dev/rightkey", "gh:pmatos/ptt"]   # local path or gh:owner/repo — both cloned fresh + deleted
 # base_branch / permission_mode / model / effort / timeout_minutes override [defaults]
 # api_max_retries / api_retry_base_seconds / api_retry_cap_seconds also override [defaults]
 # model  = "claude-opus-4-8"
@@ -103,8 +103,10 @@ projects = ["~/dev/rightkey", "pmatos/ptt"]   # local path or owner/repo — bot
 ```
 
 Each `projects` entry is either a **local path** (a checkout whose `origin` is on
-github.com) or a **remote GitHub repo** — `owner/repo`, `https://github.com/owner/repo`, or
-a `git@github.com:owner/repo.git` URL. In both cases ptt clones the github.com remote into
+github.com) or a **remote GitHub repo** — `gh:owner/repo`, `https://github.com/owner/repo`, or
+a `git@github.com:owner/repo.git` URL. A bare `owner/repo` (no `gh:`, no scheme) is read as a
+relative local path, so an on-disk checkout is never mistaken for a foreign GitHub slug. In
+both cases ptt clones the github.com remote into
 `work_dir`, runs against that clone, and deletes it when the run ends — a local checkout is
 only read (for its `origin`), never run in or modified. Private remotes need credentials
 `git`/`gh` can already use.
