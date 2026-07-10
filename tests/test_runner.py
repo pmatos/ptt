@@ -85,11 +85,50 @@ def test_run_threads_retry_knobs_into_claude(
     r.api_retry_base_seconds = 3.5
     r.api_retry_cap_seconds = 42.0
     runner.run_routine(r, make_global())
+    assert callable(captured.pop("reset"))  # reset callback is threaded through
     assert captured == {
         "max_retries": 7,
         "retry_base_s": 3.5,
         "retry_cap_s": 42.0,
     }
+
+
+def test_run_reset_callback_cleans_the_clone(
+    fake_bin, github_repo, tmp_path, monkeypatch
+):
+    # The runner must pass a reset callable bound to the actual clone + base branch,
+    # so a retry discards a failed attempt's local commit and untracked edits.
+    seen = {}
+
+    def fake_run_claude(routine, worktree, prompt_text, out, err, timeout_s, **kwargs):
+        subprocess.run(
+            ["git", "-C", str(worktree), "commit", "--allow-empty", "-m", "stale"],
+            check=True,
+            capture_output=True,
+        )
+        (worktree / "leftover.txt").write_text("junk\n")
+        head_before = _head(worktree)
+        seen["ok"] = kwargs["reset"]()
+        seen["dropped_commit"] = _head(worktree) != head_before
+        seen["cleaned"] = not (worktree / "leftover.txt").exists()
+        out.write_text(
+            '{"type":"result","structured_output":'
+            '{"status":"no_action","action":"none","url":null,'
+            '"title":"","summary":"x"}}\n'
+        )
+        return 0, False
+
+    monkeypatch.setattr(runner.claude, "run_claude", fake_run_claude)
+    runner.run_routine(make_routine(tmp_path, [github_repo]), make_global())
+    assert seen == {"ok": True, "dropped_commit": True, "cleaned": True}
+
+
+def _head(repo):
+    return subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
 
 def test_run_local_project_clones_and_leaves_checkout_untouched(

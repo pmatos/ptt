@@ -173,6 +173,7 @@ def _run_claude_and_reconcile(
         max_retries=routine.api_max_retries,
         retry_base_s=routine.api_retry_base_seconds,
         retry_cap_s=routine.api_retry_cap_seconds,
+        reset=lambda: git_ops.reset_worktree(dest, routine.base_branch, log),
     )
     claimed = outcomes.read_structured_output(logstore.claude_stdout_path(pdir))
     post, post_ok = outcomes.gh_snapshot(dest, log)

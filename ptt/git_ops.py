@@ -53,6 +53,29 @@ def create_branch(repo: Path, branch: str, log_path: Path) -> None:
         raise GitError(f"git checkout -b {branch} failed in {repo}: {r.stderr.strip()}")
 
 
+def reset_worktree(repo: Path, base_branch: str, log_path: Path) -> bool:
+    """Discard everything a prior attempt left in the clone — local commits, staged
+    and unstaged edits, and untracked/ignored files — returning the worktree to the
+    freshly-branched base state. Returns True only if the reset fully succeeds.
+
+    Used between `claude.run_claude` retries so a failed attempt's local side effects
+    don't leak into the next one (where they could be mis-reported as `no_action`
+    while an unpushed commit is silently dropped with the ephemeral clone). A local
+    reset cannot revert an already-pushed branch or an opened PR; those remote side
+    effects are caught instead by the runner's before/after gh snapshot."""
+    reset = proc.run(
+        ["git", "-C", str(repo), "reset", "--hard", f"{REMOTE}/{base_branch}"],
+        log_path=log_path,
+    )
+    if reset.returncode != 0:
+        return False
+    clean = proc.run(
+        ["git", "-C", str(repo), "clean", "-fdx"],
+        log_path=log_path,
+    )
+    return clean.returncode == 0
+
+
 def remove_clone(dest: Path, log_path: Path) -> None:
     """Best-effort removal of an ephemeral clone; never raises (finally block)."""
     try:
