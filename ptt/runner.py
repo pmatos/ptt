@@ -170,6 +170,9 @@ def _run_claude_and_reconcile(
         logstore.claude_stdout_path(pdir),
         logstore.claude_stderr_path(pdir),
         routine.timeout_minutes * 60,
+        max_retries=routine.api_max_retries,
+        retry_base_s=routine.api_retry_base_seconds,
+        retry_cap_s=routine.api_retry_cap_seconds,
     )
     claimed = outcomes.read_structured_output(logstore.claude_stdout_path(pdir))
     post, post_ok = outcomes.gh_snapshot(dest, log)

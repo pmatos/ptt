@@ -8,6 +8,14 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
+# Defaults for the outer retry `run_claude` does when `claude` exits on a transient
+# API error (429/5xx, e.g. 529 Overloaded). Overridable in config via
+# [defaults].api_max_retries / api_retry_base_seconds / api_retry_cap_seconds and
+# per-routine keys of the same name.
+DEFAULT_MAX_API_RETRIES = 3
+DEFAULT_RETRY_BASE_S = 15.0
+DEFAULT_RETRY_CAP_S = 120.0
+
 
 class Status(StrEnum):
     SUCCESS = "success"
@@ -71,6 +79,9 @@ class Defaults:
     timeout_minutes: int
     work_dir: Path
     base_branch: str
+    api_max_retries: int = DEFAULT_MAX_API_RETRIES
+    api_retry_base_seconds: float = DEFAULT_RETRY_BASE_S
+    api_retry_cap_seconds: float = DEFAULT_RETRY_CAP_S
 
 
 @dataclass
@@ -105,6 +116,9 @@ class Routine:
     effort: Effort | None
     timeout_minutes: int
     work_dir: Path
+    api_max_retries: int = DEFAULT_MAX_API_RETRIES
+    api_retry_base_seconds: float = DEFAULT_RETRY_BASE_S
+    api_retry_cap_seconds: float = DEFAULT_RETRY_CAP_S
 
 
 @dataclass

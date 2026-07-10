@@ -175,6 +175,62 @@ def test_load_routine_merges_defaults_and_expands_paths(tmp_xdg, tmp_path, monke
     assert r.effort is None
 
 
+def test_load_global_config_retry_defaults(tmp_xdg):
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL)
+    d = config.load_global_config().defaults
+    assert d.api_max_retries == m.DEFAULT_MAX_API_RETRIES
+    assert d.api_retry_base_seconds == m.DEFAULT_RETRY_BASE_S
+    assert d.api_retry_cap_seconds == m.DEFAULT_RETRY_CAP_S
+
+
+def test_load_global_config_retry_overrides(tmp_xdg):
+    body = GOOD_GLOBAL + (
+        "api_max_retries = 5\napi_retry_base_seconds = 2\napi_retry_cap_seconds = 30\n"
+    )
+    _write_global(tmp_xdg["config"], body)
+    d = config.load_global_config().defaults
+    assert d.api_max_retries == 5
+    assert d.api_retry_base_seconds == 2.0
+    assert d.api_retry_cap_seconds == 30.0
+
+
+def test_load_global_config_negative_retries_raises(tmp_xdg):
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL + "api_max_retries = -1\n")
+    with pytest.raises(config.ConfigError):
+        config.load_global_config()
+
+
+def test_load_routine_retry_override_and_fallback(tmp_xdg, tmp_path):
+    prompt = tmp_path / "p.md"
+    prompt.write_text("x")
+    # global tweaks the base; the routine overrides only max_retries.
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL + "api_retry_base_seconds = 7\n")
+    _write_routine(
+        tmp_xdg["config"],
+        "code-audit",
+        _good_routine(prompt) + "\napi_max_retries = 9\n",
+    )
+    cfg = config.load_global_config()
+    r = config.load_routine("code-audit", cfg)
+    assert r.api_max_retries == 9  # from the routine
+    assert r.api_retry_base_seconds == 7.0  # inherited from [defaults]
+    assert r.api_retry_cap_seconds == m.DEFAULT_RETRY_CAP_S  # global default
+
+
+def test_load_routine_negative_retry_base_raises(tmp_xdg, tmp_path):
+    prompt = tmp_path / "p.md"
+    prompt.write_text("x")
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL)
+    _write_routine(
+        tmp_xdg["config"],
+        "code-audit",
+        _good_routine(prompt) + "\napi_retry_base_seconds = -5\n",
+    )
+    cfg = config.load_global_config()
+    with pytest.raises(config.ConfigError):
+        config.load_routine("code-audit", cfg)
+
+
 def test_load_routine_parses_effort(tmp_xdg, tmp_path):
     prompt = tmp_path / "p.md"
     prompt.write_text("x")

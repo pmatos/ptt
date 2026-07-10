@@ -81,6 +81,10 @@ permission_mode = "bypass"      # bypass | acceptEdits  (see Security)
 timeout_minutes = 30
 base_branch = "main"
 # work_dir = "~/.cache/ptt/work"
+# Retry claude on a transient API error (429/5xx, e.g. 529 Overloaded); 0 disables:
+# api_max_retries = 3            # extra re-invocations, with exponential backoff
+# api_retry_base_seconds = 15    # first backoff (doubles each retry)
+# api_retry_cap_seconds = 120    # cap on any single backoff
 ```
 
 `~/.config/ptt/routines/code-audit.toml` (filename stem must equal `name`):
@@ -93,6 +97,7 @@ prompt = "~/prompts/refactor-audit.md"
 schedule = "Mon..Fri 05:00"     # systemd OnCalendar syntax
 projects = ["~/dev/rightkey", "pmatos/ptt"]   # local path or owner/repo — both cloned fresh + deleted
 # base_branch / permission_mode / model / effort / timeout_minutes override [defaults]
+# api_max_retries / api_retry_base_seconds / api_retry_cap_seconds also override [defaults]
 # model  = "claude-opus-4-8"
 # effort = "high"               # low | medium | high | xhigh | max  (reasoning effort)
 ```
@@ -168,6 +173,7 @@ Everything is kept under `~/.local/state/ptt/runs/<routine>/<run-id>/`:
 - `run.json` — run metadata + per-project outcomes
 - `prompt.md` — the exact prompt used
 - `projects/<name>/` — `claude.stdout.jsonl`, `claude.stderr.log`, `git.log`, `result.json`
+  (plus `claude.retries.log` if a transient API error, e.g. `529`, forced an outer retry)
 
 ## Security
 

@@ -67,6 +67,22 @@ def _enum(cls, value, field):
         raise ConfigError(f"invalid {field} {value!r}; allowed: {allowed}") from err
 
 
+def _retry_config(src: dict, dflt: tuple) -> tuple[int, float, float]:
+    """Read the (api_max_retries, api_retry_base_seconds, api_retry_cap_seconds)
+    knobs from `src`, falling back to `dflt`. All three must be non-negative."""
+    retries = int(src.get("api_max_retries", dflt[0]))
+    base = float(src.get("api_retry_base_seconds", dflt[1]))
+    cap = float(src.get("api_retry_cap_seconds", dflt[2]))
+    for name, val in (
+        ("api_max_retries", retries),
+        ("api_retry_base_seconds", base),
+        ("api_retry_cap_seconds", cap),
+    ):
+        if val < 0:
+            raise ConfigError(f"{name} must be >= 0, got {val}")
+    return retries, base, cap
+
+
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 _DEFAULT_SMTP_PORT = {
@@ -132,6 +148,14 @@ def load_global_config() -> m.GlobalConfig:
     work_dir = (
         Path(d["work_dir"]).expanduser() if "work_dir" in d else cache_home() / "work"
     )
+    retries, base, cap = _retry_config(
+        d,
+        (
+            m.DEFAULT_MAX_API_RETRIES,
+            m.DEFAULT_RETRY_BASE_S,
+            m.DEFAULT_RETRY_CAP_S,
+        ),
+    )
     defaults = m.Defaults(
         permission_mode=_enum(
             m.PermissionMode,
@@ -141,6 +165,9 @@ def load_global_config() -> m.GlobalConfig:
         timeout_minutes=int(d.get("timeout_minutes", 30)),
         work_dir=work_dir,
         base_branch=d.get("base_branch", "main"),
+        api_max_retries=retries,
+        api_retry_base_seconds=base,
+        api_retry_cap_seconds=cap,
     )
     return m.GlobalConfig(email=email_cfg, defaults=defaults)
 
@@ -179,6 +206,15 @@ def load_routine(name: str, global_cfg: m.GlobalConfig) -> m.Routine:
         else dflt.work_dir
     )
 
+    retries, base, cap = _retry_config(
+        data,
+        (
+            dflt.api_max_retries,
+            dflt.api_retry_base_seconds,
+            dflt.api_retry_cap_seconds,
+        ),
+    )
+
     return m.Routine(
         name=name,
         description=data.get("description", ""),
@@ -198,6 +234,9 @@ def load_routine(name: str, global_cfg: m.GlobalConfig) -> m.Routine:
         ),
         timeout_minutes=int(data.get("timeout_minutes", dflt.timeout_minutes)),
         work_dir=work_dir,
+        api_max_retries=retries,
+        api_retry_base_seconds=base,
+        api_retry_cap_seconds=cap,
     )
 
 

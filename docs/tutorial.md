@@ -86,6 +86,11 @@ smtp_username = "your-postmark-server-token"
 permission_mode = "bypass"      # see "About permissions" below
 timeout_minutes = 30
 base_branch = "main"
+
+# Transient API-error retry (see step 9). Defaults shown; tune or omit:
+# api_max_retries        = 3      # extra re-invocations after a 429/5xx (e.g. 529)
+# api_retry_base_seconds = 15     # first backoff; doubles each retry
+# api_retry_cap_seconds  = 120    # upper bound on any single backoff
 ```
 
 `on` controls when you get email:
@@ -157,6 +162,9 @@ projects = ["~/dev/yourproject"]     # local paths and/or remote repos (see belo
 # model = "claude-opus-4-8"
 # effort = "high"                    # low | medium | high | xhigh | max
 # timeout_minutes = 30
+# api_max_retries = 3                # transient-API-error retry; see step 9
+# api_retry_base_seconds = 15
+# api_retry_cap_seconds = 120
 ```
 
 **`effort`** picks Claude's reasoning effort for the run (passed through as
@@ -275,6 +283,7 @@ projects/yourproject/
   result.json                # this project's outcome (verified against gh)
   claude.stdout.jsonl        # raw Claude output
   claude.stderr.log
+  claude.retries.log         # only present if a transient API error forced a retry
   git.log                    # every git/gh command + output
 ```
 
@@ -289,6 +298,24 @@ ptt logs code-audit --project yourproject             # + that project's raw log
 In `result.json`, note `verified`: ptt cross-checks Claude's claim ("I opened a PR")
 against a real `gh` before/after diff. A claimed-but-unconfirmed action is reported as
 `(unverified)` in the email so you know to look closer.
+
+**Transient API errors are retried.** If `claude` exhausts its own internal retries and
+exits because Anthropic's API was overloaded or rate-limited (HTTP 429/5xx, e.g. a `529
+Overloaded`), ptt re-invokes it a few times with exponential backoff before giving up on
+the project — a single availability blip no longer fails an otherwise-fine run. When that
+happens you'll find a `claude.retries.log` in the project's log dir listing each retry;
+the canonical `claude.stdout.jsonl` keeps the final attempt. Non-transient failures (a
+timeout, a `4xx`, or Claude reporting an error itself) are **not** retried.
+
+Tune it in `[defaults]` (or per routine) — the defaults give backoffs of 15s → 30s → 60s:
+
+| key                      | default | meaning                                             |
+|--------------------------|---------|-----------------------------------------------------|
+| `api_max_retries`        | `3`     | extra re-invocations after the first attempt fails  |
+| `api_retry_base_seconds` | `15`    | first backoff; doubles on each subsequent retry     |
+| `api_retry_cap_seconds`  | `120`   | ceiling on any single backoff                       |
+
+Set `api_max_retries = 0` to disable the outer retry entirely (one attempt, as before).
 
 ## 10. Schedule it
 
@@ -355,6 +382,7 @@ unattended).
 | No email arrived                     | Check `on` policy; look for a `.email-failed` marker in the run dir.  |
 | All projects `failed (Could not resolve host)` on a resume-triggered run | Network wasn't up yet when the timer fired; the `wait-online` gate covers this — if it predates this fix, re-run `ptt install <routine>`. |
 | Action shown as `(unverified)`       | Claude claimed a PR/issue `gh` couldn't confirm — check `git.log`.    |
+| Project `failed (claude exited 1)` with a `529`/overload in `claude.stdout.jsonl` | Anthropic's API was overloaded. ptt already retries these with backoff (see `claude.retries.log`); if it persisted through every retry, just re-run the routine later. |
 | Project `failed (timeout)`           | Raise `timeout_minutes` for the routine.                             |
 | `No such file or directory: 'claude'` under the timer | The unit's baked `PATH` is stale or predates this fix — re-run `ptt install <routine>` from a shell where `claude` is on `PATH`. |
 | Timer never fires while logged out   | Run `sudo loginctl enable-linger <you>`.                              |
