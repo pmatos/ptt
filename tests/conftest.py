@@ -93,7 +93,7 @@ def remote_github_repo(tmp_path, monkeypatch):
     """A bare repo whose github.com clone URL is rewritten (via a *global* insteadOf)
     to the local bare, so `git clone https://github.com/fake/repo.git` works offline
     while the stored origin still looks like github.com (is_github_repo passes).
-    Returns the `owner/repo` slug to use as a remote project entry."""
+    Returns the `gh:owner/repo` marker to use as a remote project entry."""
     bare = tmp_path / "remote.git"
     subprocess.run(
         ["git", "init", "--bare", "-b", "main", str(bare)],
@@ -117,4 +117,4 @@ def remote_github_repo(tmp_path, monkeypatch):
         "[user]\n\temail = t@example.com\n\tname = Tester\n"
     )
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
-    return "fake/repo"
+    return "gh:fake/repo"

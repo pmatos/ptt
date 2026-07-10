@@ -262,7 +262,7 @@ def test_load_routine_parses_remote_project(tmp_xdg, tmp_path):
     prompt.write_text("x")
     _write_global(tmp_xdg["config"], GOOD_GLOBAL)
     body = _good_routine(prompt).replace(
-        'projects = ["~/dev/a", "/abs/b"]', 'projects = ["pmatos/ptt"]'
+        'projects = ["~/dev/a", "/abs/b"]', 'projects = ["gh:pmatos/ptt"]'
     )
     _write_routine(tmp_xdg["config"], "code-audit", body)
     cfg = config.load_global_config()

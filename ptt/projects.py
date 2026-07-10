@@ -1,10 +1,12 @@
 """Classify a routine's project entry as either a local checkout or a remote
 GitHub repo to be cloned ephemerally. Syntactic and side-effect free for ordinary
-entries (no network access) — a `owner/repo` shorthand or a git URL is remote;
-anything else is a local path. Degenerate entries whose derived directory name
-would be empty, `.`, or `..` are sanitized (`_safe_name`) so the run's log/worktree
-dirs can't collapse to or escape their parent: a local path resolves once against
-the cwd to recover its real basename; a URL falls back to a fixed token."""
+entries (no network access) — a `gh:owner/repo` marker or a git URL is remote;
+anything else (including a bare `owner/repo`) is a local path. The `gh:` marker is
+required so a relative path like `dev/repo` is never mistaken for a GitHub slug and
+silently cloned from a foreign repo (#9). Degenerate entries whose derived directory
+name would be empty, `.`, or `..` are sanitized (`_safe_name`) so the run's
+log/worktree dirs can't collapse to or escape their parent: a local path resolves
+once against the cwd to recover its real basename; a URL falls back to a fixed token."""
 
 from __future__ import annotations
 
@@ -14,8 +16,8 @@ from pathlib import Path
 
 from ptt import models as m
 
-# owner/repo — exactly one slash, no leading ~ . / and no scheme.
-_SLUG_RE = re.compile(r"^[A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*$")
+# Explicit opt-in marker for the GitHub `owner/repo` remote shorthand.
+_GH_PREFIX = "gh:"
 _URL_RE = re.compile(r"^(https?://|ssh://|git@)")
 
 
@@ -25,13 +27,14 @@ def parse(raw: str) -> m.ProjectSpec:
         return m.ProjectSpec(
             raw=raw, is_remote=True, location=s, name=_safe_name(_name_from_url(s))
         )
-    if _SLUG_RE.match(s):
-        url = f"https://github.com/{s}.git"
+    if s.startswith(_GH_PREFIX):
+        slug = _strip_git(s[len(_GH_PREFIX) :])
+        url = f"https://github.com/{slug}.git"
         return m.ProjectSpec(
             raw=raw,
             is_remote=True,
             location=url,
-            name=_safe_name(_strip_git(s.split("/")[1])),
+            name=_safe_name(slug.rsplit("/", 1)[-1]),
         )
     # A bare `~user` that can't be resolved makes expanduser() raise RuntimeError;
     # a malformed project entry must degrade to a (bad) literal path, not crash the run.

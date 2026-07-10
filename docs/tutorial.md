@@ -20,7 +20,7 @@ lets Claude open a PR when it finds something worth doing, and emails you a summ
   gh auth login
   ```
 - **A GitHub project** to point ptt at — either a local clone whose `origin` is on
-  github.com, or a remote you name as `owner/repo` / a git URL. Either way ptt clones the
+  github.com, or a remote you name as `gh:owner/repo` / a git URL. Either way ptt clones the
   remote fresh each run and deletes it afterward (a local clone is only read for its
   `origin`); private repos just need credentials `git`/`gh` can already use.
 - **An email account you can send through over SMTP** — any provider works (Postmark,
@@ -179,17 +179,22 @@ fresh, run the prompt, delete the clone:
 ```toml
 projects = [
   "~/dev/yourproject",                    # local checkout (read-only, only for its origin URL)
-  "yourname/some-repo",                   # owner/repo shorthand → cloned + deleted
+  "gh:yourname/some-repo",                # owner/repo shorthand → cloned + deleted
   "https://github.com/yourname/other",    # full URL also works (also git@… SSH)
 ]
 ```
+
+The `gh:` marker is required for the `owner/repo` shorthand: a bare `yourname/some-repo`
+is read as a **relative local path**, so a real local checkout like `dev/repo` is never
+mistaken for a GitHub slug and cloned from the wrong repo. Remotes must therefore opt in
+with `gh:` or a full URL.
 
 Every entry — local or remote — is run against a fresh clone of its github.com remote under
 `work_dir` (default `~/.cache/ptt/work`), removed after each run. A local checkout is only
 read (for its `origin` URL); ptt never runs in it, fetches into it, or branches it. Private
 repos work as long as `git`/`gh` already have credentials for them. To run just one of the
 projects, `ptt run <routine> --project <owner/repo>` selects a remote by its `owner/repo`
-slug (a full URL or a local path works too).
+slug (the `gh:` form, a full URL, or a local path works too).
 
 The `schedule` uses systemd's `OnCalendar` syntax. A few examples:
 
