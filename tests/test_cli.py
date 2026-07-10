@@ -1,4 +1,5 @@
 import json
+import os
 
 from ptt import cli, netcheck, notify
 
@@ -26,6 +27,18 @@ def test_run_command_end_to_end(
     rc = cli.main(["run", "audit"])
     assert rc == 0
     assert "[ptt] audit" in capsys.readouterr().out
+
+
+def test_run_command_merges_baked_ptt_path(
+    fake_bin, github_repo, tmp_xdg, tmp_path, monkeypatch
+):
+    # `ptt run` merges the baked PTT_PATH into PATH so claude/git/gh resolve even when
+    # the unit's PATH was left stale/sparse by an env-file PATH= override (issue #15).
+    monkeypatch.setenv("PTT_FAKE_MODE", "none")
+    write_config(tmp_xdg["config"], github_repo, tmp_path)
+    monkeypatch.setenv("PTT_PATH", "/baked/sentinel/bin")
+    assert cli.main(["run", "audit"]) == 0
+    assert os.environ["PATH"].split(os.pathsep)[0] == "/baked/sentinel/bin"
 
 
 def test_doctor_ok(fake_bin, github_repo, tmp_xdg, tmp_path, monkeypatch):

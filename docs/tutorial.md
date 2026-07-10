@@ -335,7 +335,11 @@ Install bakes your **current `PATH`** into the service unit so the scheduled run
 `claude`, `git`, and `gh` exactly where your shell does. This matters because systemd's
 user manager runs with a sparse `PATH` that usually omits `~/.local/bin` (where `claude`
 typically lives) — without this you'd see `No such file or directory: 'claude'` in the
-run log. Re-run `ptt install <routine>` if `claude` ever moves to a different directory.
+run log. It's baked as `Environment="PTT_PATH=…"` rather than `PATH` itself, so even a
+`PATH=` line you added to `~/.config/ptt/env` can't shadow it (systemd lets an
+`EnvironmentFile=` entry override `Environment=`); `ptt run` folds `PTT_PATH` back into
+`PATH` before it shells out. Re-run `ptt install <routine>` if `claude` ever moves to a
+different directory.
 
 The timer is installed with `Persistent=true`, so a run missed while the machine was
 asleep or off fires as soon as it comes back. Because that can happen the instant the
@@ -384,7 +388,7 @@ unattended).
 | Action shown as `(unverified)`       | Claude claimed a PR/issue `gh` couldn't confirm — check `git.log`.    |
 | Project `failed (claude exited 1)` with a `529`/overload in `claude.stdout.jsonl` | Anthropic's API was overloaded. ptt already retries these with backoff (see `claude.retries.log`); if it persisted through every retry, just re-run the routine later. |
 | Project `failed (timeout)`           | Raise `timeout_minutes` for the routine.                             |
-| `No such file or directory: 'claude'` under the timer | The unit's baked `PATH` is stale or predates this fix — re-run `ptt install <routine>` from a shell where `claude` is on `PATH`. |
+| `No such file or directory: 'claude'` under the timer | The unit's baked `PATH` is stale or predates this fix — re-run `ptt install <routine>` from a shell where `claude` is on `PATH`. (A `PATH=` line in `~/.config/ptt/env` no longer breaks this: the baked value lives under `PTT_PATH` and `ptt run` merges it in, so it wins regardless.) |
 | Timer never fires while logged out   | Run `sudo loginctl enable-linger <you>`.                              |
 
 For deeper debugging, read `claude.stderr.log` and `git.log` in the run's project dir.

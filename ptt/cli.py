@@ -13,6 +13,9 @@ from ptt import models as m
 
 
 def _cmd_run(args) -> int:
+    # Under the timer, fold the baked PTT_PATH into PATH before shelling out so
+    # claude/git/gh resolve even if the unit's PATH was left stale (issue #15).
+    schedule.apply_baked_path()
     cfg = config.load_global_config()
     routine = config.load_routine(args.routine, cfg)
     run = runner.run_routine(routine, cfg, only_project=args.project, force=args.force)

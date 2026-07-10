@@ -148,10 +148,13 @@ ptt uninstall code-audit
 and enables the timer. The unit's `ExecStart` uses whatever `ptt` resolves to at install
 time — `~/.local/bin/ptt` if you ran `uv tool install`, or the project's
 `.venv/bin/ptt` if you ran `uv run ptt install` — both stable, absolute paths.
-The service also bakes in your **current `PATH`** (via `Environment="PATH=…"`) so that
-`claude`, `git`, and `gh` resolve the same way they do in your shell — the systemd user
-manager's own `PATH` is sparse and usually omits e.g. `~/.local/bin`, which is where
-`claude` typically lives. Run `ptt install <routine>` again if `claude` ever moves.
+The service also bakes in your **current `PATH`** so that `claude`, `git`, and `gh`
+resolve the same way they do in your shell — the systemd user manager's own `PATH` is
+sparse and usually omits e.g. `~/.local/bin`, which is where `claude` typically lives. It
+is baked as `Environment="PTT_PATH=…"` (not `PATH` itself) so a `PATH=` line you may have
+put in `~/.config/ptt/env` can't override it — systemd lets `EnvironmentFile=` win over
+`Environment=`. `ptt run` folds `PTT_PATH` back into `PATH` at startup. Run
+`ptt install <routine>` again if `claude` ever moves.
 
 Timers use `Persistent=true`, so a run missed while the machine was asleep fires on
 resume — potentially before the network is up. The service therefore gates `ExecStart`
