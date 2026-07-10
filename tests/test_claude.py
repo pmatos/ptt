@@ -34,6 +34,12 @@ def _routine(permission_mode=m.PermissionMode.BYPASS, model=None, effort=None):
     )
 
 
+def _invocations(wt):
+    """The fake claude's per-invocation log (`fresh` / `resume:<id>` lines)."""
+    p = Path(wt) / ".fake-invocations"
+    return p.read_text().split() if p.is_file() else []
+
+
 def test_build_prompt_appends_result_footer():
     out = claude.build_prompt("Do the audit.")
     assert "Do the audit." in out
@@ -192,6 +198,28 @@ def test_last_api_error_status_none_on_missing_or_garbage(tmp_path):
     assert claude.last_api_error_status(log) is None
 
 
+def test_session_id_from_stream_reads_last_seen(tmp_path):
+    # A resumed session can fork to a new id; track the last one seen so the next
+    # retry resumes the current conversation, not a stale ancestor.
+    log = tmp_path / "o.jsonl"
+    log.write_text(
+        json.dumps({"type": "system", "subtype": "init", "session_id": "sess-a"})
+        + "\n"
+        + json.dumps({"type": "assistant", "session_id": "sess-a"})
+        + "\n"
+        + json.dumps({"type": "result", "subtype": "success", "session_id": "sess-b"})
+        + "\n"
+    )
+    assert claude.session_id_from_stream(log) == "sess-b"
+
+
+def test_session_id_from_stream_none_when_absent_or_missing(tmp_path):
+    assert claude.session_id_from_stream(tmp_path / "nope.jsonl") is None
+    log = tmp_path / "o.jsonl"
+    log.write_text(json.dumps({"type": "result", "subtype": "success"}) + "\n")
+    assert claude.session_id_from_stream(log) is None
+
+
 def test_run_claude_retries_then_gives_up_on_persistent_529(
     fake_bin, tmp_path, monkeypatch
 ):
@@ -269,12 +297,17 @@ def test_run_claude_succeeds_after_transient_529(fake_bin, tmp_path, monkeypatch
     assert len(sleeper.delays) == 1  # failed once, then succeeded
     claimed = outcomes.read_structured_output(out)
     assert claimed is not None and claimed.action == m.Action.PR
+    # the retry RESUMED the interrupted session rather than starting over
+    assert _invocations(wt) == ["fresh", "resume:sess-1"]
 
 
-def test_run_claude_resets_before_each_retry(fake_bin, tmp_path, monkeypatch):
-    # A failed attempt may have dirtied the shared worktree; run_claude must reset it
-    # before each re-invocation so a prior attempt's side effects don't leak forward.
-    monkeypatch.setenv("PTT_FAKE_MODE", "api_error")  # persistent 529
+def test_run_claude_resumes_between_retries_without_resetting(
+    fake_bin, tmp_path, monkeypatch
+):
+    # A transient API error is a pause, not a reason to start over: each retry must
+    # RESUME the interrupted session (keeping the worktree — incl. any pushed branch
+    # — intact) instead of rewinding the clone. So reset must NOT be called.
+    monkeypatch.setenv("PTT_FAKE_MODE", "api_error")  # persistent 529, with a session
     wt = tmp_path / "wt"
     wt.mkdir()
     resets = []
@@ -292,15 +325,44 @@ def test_run_claude_resets_before_each_retry(fake_bin, tmp_path, monkeypatch):
         sleep=sleeper,
     )
     assert rc == 1 and timed_out is False
-    # 2 retries → reset called once before each of the 2 re-invocations
-    assert len(resets) == 2
+    assert resets == []  # resume keeps the worktree; the reset fallback is untouched
     assert sleeper.delays == [0.01, 0.02]
+    # fresh first attempt, then each retry resumes the same session
+    assert _invocations(wt) == ["fresh", "resume:sess-1", "resume:sess-1"]
+
+
+def test_run_claude_falls_back_to_reset_when_no_session(
+    fake_bin, tmp_path, monkeypatch
+):
+    # If claude died before a session existed, there's nothing to resume; fall back
+    # to the old behaviour — reset the clone, then retry fresh.
+    monkeypatch.setenv("PTT_FAKE_MODE", "api_error_no_session")
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    resets = []
+    sleeper = _Sleeper()
+    rc, timed_out = claude.run_claude(
+        _routine(),
+        wt,
+        "prompt",
+        tmp_path / "o.jsonl",
+        tmp_path / "e",
+        timeout_s=10,
+        max_retries=2,
+        retry_base_s=0.01,
+        reset=lambda: (resets.append(True), True)[1],
+        sleep=sleeper,
+    )
+    assert rc == 1 and timed_out is False
+    assert len(resets) == 2  # reset before each fresh retry
+    assert sleeper.delays == [0.01, 0.02]
+    assert _invocations(wt) == ["fresh", "fresh", "fresh"]  # never resumed
 
 
 def test_run_claude_stops_retrying_when_reset_fails(fake_bin, tmp_path, monkeypatch):
-    # If the clone can't be cleaned, retrying into a dirty worktree is unsafe: stop
-    # and return the failure so reconciliation (incl. the gh snapshot) decides.
-    monkeypatch.setenv("PTT_FAKE_MODE", "api_error")
+    # On the no-session fallback, if the clone can't be cleaned, retrying into a dirty
+    # worktree is unsafe: stop and return the failure so reconciliation decides.
+    monkeypatch.setenv("PTT_FAKE_MODE", "api_error_no_session")
     wt = tmp_path / "wt"
     wt.mkdir()
     calls = []
@@ -320,6 +382,7 @@ def test_run_claude_stops_retrying_when_reset_fails(fake_bin, tmp_path, monkeypa
     assert rc == 1 and timed_out is False
     assert len(calls) == 1  # attempted reset once after the first failure, then bailed
     assert sleeper.delays == []  # no backoff because we didn't retry
+    assert _invocations(wt) == ["fresh"]  # only the first attempt ran
 
 
 def test_run_claude_does_not_retry_non_api_error(fake_bin, tmp_path, monkeypatch):
