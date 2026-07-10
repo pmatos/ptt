@@ -13,7 +13,10 @@ Separately, `claude` retries transient API failures internally, but during a
 sustained overload window it exhausts those retries and exits non-zero with an
 `api_error_status` (e.g. 529) in its stream-json output. `run_claude` adds an
 outer retry with exponential backoff for exactly those cases, so a single blip in
-Anthropic availability doesn't fail an otherwise-fine project."""
+Anthropic availability doesn't fail an otherwise-fine project. Because those retries
+reuse the same worktree, `run_claude` resets it (via the caller's `reset` callback)
+between attempts so a failed attempt's local edits/commits can't leak into the next
+one and be mis-reported as `no_action`."""
 
 from __future__ import annotations
 
@@ -23,6 +26,7 @@ import os
 import signal
 import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from ptt import models as m
@@ -116,6 +120,7 @@ def run_claude(
     max_retries: int = m.DEFAULT_MAX_API_RETRIES,
     retry_base_s: float = m.DEFAULT_RETRY_BASE_S,
     retry_cap_s: float = m.DEFAULT_RETRY_CAP_S,
+    reset: Callable[[], bool] | None = None,
     sleep=time.sleep,
 ) -> tuple[int, bool]:
     """Invoke `claude` (see _run_once), retrying up to `max_retries` extra times
@@ -123,7 +128,15 @@ def run_claude(
     error (a RETRYABLE_API_STATUSES status in its stream-json output). Returns
     (exit_code, timed_out) for the final attempt. Timeouts and non-API failures
     are never retried. The stdout/stderr logs hold the last attempt; each retry is
-    noted in a sibling `claude.retries.log`."""
+    noted in a sibling `claude.retries.log`.
+
+    Because every attempt reuses the same `worktree`, a failed attempt may have left
+    local side effects behind (edits, an unpushed commit) before its final API
+    request failed. Before each retry the `reset` callback (if given) is invoked to
+    discard them so the next attempt starts from the pre-attempt state; if it returns
+    False the retry is abandoned — returning the failed result rather than running
+    against a dirty tree — and reconciliation (incl. the gh snapshot) decides the
+    outcome."""
     retries = max(0, max_retries)  # always at least one attempt
     for attempt in range(retries + 1):
         # Each attempt truncates stdout_path (see _run_once), so the reconciled
@@ -136,6 +149,10 @@ def run_claude(
             return rc, timed_out
         status = last_api_error_status(stdout_path)
         if status not in RETRYABLE_API_STATUSES or attempt == retries:
+            return rc, timed_out
+        # Discard any local side effects this failed attempt left in the worktree
+        # before retrying; if it can't be cleaned, don't retry into a dirty tree.
+        if reset is not None and not reset():
             return rc, timed_out
         delay = backoff_delay(attempt, retry_base_s, retry_cap_s)
         _note_retry(stdout_path, attempt, retries, status, delay)

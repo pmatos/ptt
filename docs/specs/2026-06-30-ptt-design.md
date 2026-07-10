@@ -274,7 +274,13 @@ claude -p \
   `[defaults]` and are per-routine overridable (defaults 3 / 15s / 120s; `api_max_retries = 0`
   disables the outer retry). Each retry is recorded in a sibling `claude.retries.log`; the
   canonical `claude.stdout.jsonl`/`.stderr.log` keep the final attempt. Timeouts and
-  non-API failures are never retried.
+  non-API failures are never retried. Because every attempt reuses the same throwaway
+  clone, the runner passes `run_claude` a `reset` callback (`git_ops.reset_worktree`:
+  `git reset --hard origin/<base>` + `git clean -fdx`) invoked before each retry, so a
+  failed attempt's local edits or unpushed commit can't leak into the next attempt and be
+  mis-reported as `no_action`; if the reset fails the retry is abandoned. A local reset
+  cannot undo an already-pushed branch or opened PR — those remote side effects are still
+  caught by the before/after `gh` snapshot bracketing the whole loop.
 
 ## 10. Security considerations
 

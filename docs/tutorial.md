@@ -309,8 +309,11 @@ exits because Anthropic's API was overloaded or rate-limited (HTTP 429/5xx, e.g.
 Overloaded`), ptt re-invokes it a few times with exponential backoff before giving up on
 the project — a single availability blip no longer fails an otherwise-fine run. When that
 happens you'll find a `claude.retries.log` in the project's log dir listing each retry;
-the canonical `claude.stdout.jsonl` keeps the final attempt. Non-transient failures (a
-timeout, a `4xx`, or Claude reporting an error itself) are **not** retried.
+the canonical `claude.stdout.jsonl` keeps the final attempt. Because every attempt reuses
+the same throwaway clone, ptt first resets it (`git reset --hard` + `git clean`) between
+attempts, so any edits or an unpushed commit a failed attempt left behind can't leak into
+the retry and be mis-reported as "nothing to do". Non-transient failures (a timeout, a
+`4xx`, or Claude reporting an error itself) are **not** retried.
 
 Tune it in `[defaults]` (or per routine) — the defaults give backoffs of 15s → 30s → 60s:
 

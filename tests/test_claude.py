@@ -271,6 +271,57 @@ def test_run_claude_succeeds_after_transient_529(fake_bin, tmp_path, monkeypatch
     assert claimed is not None and claimed.action == m.Action.PR
 
 
+def test_run_claude_resets_before_each_retry(fake_bin, tmp_path, monkeypatch):
+    # A failed attempt may have dirtied the shared worktree; run_claude must reset it
+    # before each re-invocation so a prior attempt's side effects don't leak forward.
+    monkeypatch.setenv("PTT_FAKE_MODE", "api_error")  # persistent 529
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    resets = []
+    sleeper = _Sleeper()
+    rc, timed_out = claude.run_claude(
+        _routine(),
+        wt,
+        "prompt",
+        tmp_path / "o.jsonl",
+        tmp_path / "e",
+        timeout_s=10,
+        max_retries=2,
+        retry_base_s=0.01,
+        reset=lambda: (resets.append(True), True)[1],
+        sleep=sleeper,
+    )
+    assert rc == 1 and timed_out is False
+    # 2 retries → reset called once before each of the 2 re-invocations
+    assert len(resets) == 2
+    assert sleeper.delays == [0.01, 0.02]
+
+
+def test_run_claude_stops_retrying_when_reset_fails(fake_bin, tmp_path, monkeypatch):
+    # If the clone can't be cleaned, retrying into a dirty worktree is unsafe: stop
+    # and return the failure so reconciliation (incl. the gh snapshot) decides.
+    monkeypatch.setenv("PTT_FAKE_MODE", "api_error")
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    calls = []
+    sleeper = _Sleeper()
+    rc, timed_out = claude.run_claude(
+        _routine(),
+        wt,
+        "prompt",
+        tmp_path / "o.jsonl",
+        tmp_path / "e",
+        timeout_s=10,
+        max_retries=3,
+        retry_base_s=0.01,
+        reset=lambda: (calls.append(True), False)[1],
+        sleep=sleeper,
+    )
+    assert rc == 1 and timed_out is False
+    assert len(calls) == 1  # attempted reset once after the first failure, then bailed
+    assert sleeper.delays == []  # no backoff because we didn't retry
+
+
 def test_run_claude_does_not_retry_non_api_error(fake_bin, tmp_path, monkeypatch):
     monkeypatch.setenv("PTT_FAKE_MODE", "error")  # exits 3, no api_error_status
     wt = tmp_path / "wt"

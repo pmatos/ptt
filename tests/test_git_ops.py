@@ -94,3 +94,33 @@ def test_clone_bad_branch_raises(tmp_path):
 
 def test_remove_clone_missing_is_best_effort(tmp_path):
     git_ops.remove_clone(tmp_path / "nope", tmp_path / "g.log")
+
+
+def test_reset_worktree_discards_local_state(tmp_path):
+    # A failed attempt may leave a tracked edit, an untracked file, and an unpushed
+    # local commit; reset_worktree must return the clone to the freshly-branched base.
+    bare = _bare_with_commit(tmp_path)
+    dest = tmp_path / "clone"
+    log = tmp_path / "g.log"
+    git_ops.clone(str(bare), dest, "main", log)
+    git_ops.create_branch(dest, "ptt/x/1", log)
+    base = _git(dest, "rev-parse", "HEAD").stdout.strip()
+
+    (dest / "README.md").write_text("# tampered\n")
+    (dest / "scratch.txt").write_text("junk\n")
+    _git(dest, "add", "-A")
+    _git(dest, "commit", "-m", "work from a failed attempt")
+    assert _git(dest, "rev-parse", "HEAD").stdout.strip() != base
+
+    assert git_ops.reset_worktree(dest, "main", log) is True
+
+    assert _git(dest, "rev-parse", "HEAD").stdout.strip() == base
+    assert (dest / "README.md").read_text() == "# fake\n"  # tracked edit reverted
+    assert not (dest / "scratch.txt").exists()  # untracked file removed
+    assert _git(dest, "status", "--porcelain").stdout.strip() == ""
+
+
+def test_reset_worktree_returns_false_on_failure(tmp_path):
+    dest = tmp_path / "not-a-repo"
+    dest.mkdir()
+    assert git_ops.reset_worktree(dest, "main", tmp_path / "g.log") is False
