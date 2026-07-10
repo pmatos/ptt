@@ -2,8 +2,15 @@
 (routine prompt + a fixed result-reporting footer) and the argv, and runs it in
 its own process group so a timeout can kill the whole tree.
 
-`claude` retries transient API failures internally, but during a sustained
-overload window it exhausts those retries and exits non-zero with an
+Two harness-level guards make the one-shot contract robust: `--json-schema` forces
+Claude's final message to be a schema-valid result object (surfaced in the
+stream-json `result` event's `structured_output`, so ptt no longer depends on the
+model remembering to write a file), and `--disallowedTools` removes the
+schedule-and-wait tools that tempt the model to background work and end its turn
+expecting a re-invocation that never comes.
+
+Separately, `claude` retries transient API failures internally, but during a
+sustained overload window it exhausts those retries and exits non-zero with an
 `api_error_status` (e.g. 529) in its stream-json output. `run_claude` adds an
 outer retry with exponential backoff for exactly those cases, so a single blip in
 Anthropic availability doesn't fail an otherwise-fine project."""
@@ -20,15 +27,35 @@ from pathlib import Path
 
 from ptt import models as m
 
+# The exact result contract, enforced by `--json-schema` so the final message
+# cannot end the run without conforming. Enum values mirror m.Status / m.Action.
+RESULT_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "string", "enum": ["success", "no_action", "error"]},
+        "action": {
+            "type": "string",
+            "enum": ["pr", "issue_opened", "issue_closed", "commit", "none"],
+        },
+        "url": {"type": ["string", "null"]},
+        "title": {"type": "string"},
+        "summary": {"type": "string"},
+    },
+    "required": ["status", "action", "url", "title", "summary"],
+    "additionalProperties": False,
+}
+
+# Tools that let Claude background work and end its turn to "be resumed" — which
+# never happens in a one-shot headless run, so the work is killed and lost. Denied
+# by bare name so they are removed from the toolset entirely. (Agent/subagents are
+# left enabled: they run to completion within the turn.)
+DISALLOWED_TOOLS = ["ScheduleWakeup", "Monitor", "CronCreate"]
+
 # HTTP statuses worth re-invoking `claude` for: overload/rate-limit/5xx, i.e.
 # transient server-side conditions that a later attempt may clear. A 4xx like
 # 400/401/403/404 is a config/auth problem that won't fix itself, so it is
 # deliberately absent — retrying it would only waste time.
 RETRYABLE_API_STATUSES = frozenset({408, 429, 500, 502, 503, 504, 529})
-
-# The file Claude writes to report its outcome; run_claude clears it before each
-# attempt so a retry is never reconciled against a stale earlier claim.
-RESULT_FILENAME = ".ptt-result.json"
 
 RESULT_FOOTER = """\
 ---
@@ -44,10 +71,9 @@ and its result is lost when your turn ends. Push the branch and open the PR
 within this turn; an unpushed commit is discarded when the throwaway clone is
 removed.
 
-Always write a file named `.ptt-result.json` in the repository root before you
-end — even if you failed or ran out of time (use status "error" with a summary of
-how far you got) — a single JSON object describing what you did, with exactly
-these keys:
+When you end, report the outcome as the structured result ptt requires — even if
+you failed or ran out of time (use status "error" with a summary of how far you
+got): a single object with these keys:
 
   {
     "status":  "success" | "no_action" | "error",
@@ -73,6 +99,9 @@ def build_argv(routine: m.Routine) -> list[str]:
         argv += ["--model", routine.model]
     if routine.effort:
         argv += ["--effort", str(routine.effort)]
+    argv += ["--json-schema", json.dumps(RESULT_SCHEMA)]
+    # Variadic flag: keep it last so it consumes only the tool names that follow.
+    argv += ["--disallowedTools", *DISALLOWED_TOOLS]
     return argv
 
 
@@ -96,14 +125,10 @@ def run_claude(
     are never retried. The stdout/stderr logs hold the last attempt; each retry is
     noted in a sibling `claude.retries.log`."""
     retries = max(0, max_retries)  # always at least one attempt
-    result_file = worktree / RESULT_FILENAME
     for attempt in range(retries + 1):
-        # Judge each attempt on its own result file: a prior attempt that wrote
-        # .ptt-result.json and then died non-zero must not leave a stale claim for
-        # a later failed attempt to be reconciled against (that would report a
-        # failed run as success). See PR #17 review.
-        with contextlib.suppress(FileNotFoundError):
-            result_file.unlink()
+        # Each attempt truncates stdout_path (see _run_once), so the reconciled
+        # claim always comes from the last attempt's structured_output — a prior
+        # attempt that died non-zero can't leave a stale claim behind.
         rc, timed_out = _run_once(
             routine, worktree, prompt_text, stdout_path, stderr_path, timeout_s
         )

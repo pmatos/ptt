@@ -3,15 +3,16 @@
 
 Behaviour switched via $PTT_FAKE_MODE: none|pr|unverified|issue_opened|
 issue_closed|commit|error|timeout|api_error|api_error_then_pr|api_error_stale_result.
-Reads (and discards) the prompt on stdin, emits a line of canned stream-json, and
-writes `.ptt-result.json` in cwd. For the `pr` and `issue_*` modes it also drops
-marker files that the fake `gh` reads, so the before/after gh snapshot shows a real
-delta.
+Reads (and discards) the prompt on stdin, then emits canned stream-json. The
+claimed outcome is delivered the way the real `--json-schema` guard delivers it: as
+`structured_output` on the final `result` event (never a `.ptt-result.json` file).
+For the `pr` and `issue_*` modes it also drops marker files that the fake `gh`
+reads, so the before/after gh snapshot shows a real delta.
 
 `api_error` mimics `claude` giving up after its own internal retries: it emits a
 terminal stream-json `result` record with `is_error: true` and
-`api_error_status: 529` (like an overloaded server) and exits 1, writing no
-`.ptt-result.json`. `api_error_then_pr` does that only on the first invocation
+`api_error_status: 529` (like an overloaded server) and exits 1, with no valid
+`structured_output`. `api_error_then_pr` does that only on the first invocation
 (tracked via a `.fake-attempts` counter in cwd) and succeeds with a PR afterwards,
 so ptt's outer retry can be exercised end-to-end.
 """
@@ -28,7 +29,7 @@ print(json.dumps({"type": "system", "subtype": "fake_claude", "mode": mode}))
 
 
 def result(d):
-    (cwd / ".ptt-result.json").write_text(json.dumps(d))
+    print(json.dumps({"type": "result", "subtype": "success", "structured_output": d}))
 
 
 def api_error(status=529):
@@ -52,9 +53,9 @@ elif mode == "api_error_then_pr":
             "url": "https://github.com/fake/repo/pull/1",
             "title": "Add config loader", "summary": "Implemented after a retry."})
 elif mode == "api_error_stale_result":
-    # First attempt writes a success result and THEN dies with a 529; later
-    # attempts die without writing one. If the retry loop didn't clear the file,
-    # the stale success claim would survive the failed final attempt.
+    # First attempt emits a success result and THEN dies with a 529; later
+    # attempts die without emitting one. Because each attempt truncates the stdout
+    # log, the stale success claim must not survive the failed final attempt.
     counter = cwd / ".fake-attempts"
     n = int(counter.read_text()) if counter.is_file() else 0
     counter.write_text(str(n + 1))

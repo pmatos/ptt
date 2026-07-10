@@ -123,7 +123,7 @@ class Routine:
 
 @dataclass
 class Outcome:
-    """What Claude *claimed* it did (parsed from .ptt-result.json)."""
+    """What Claude *claimed* it did (from the stream-json structured_output)."""
 
     status: Status
     action: Action

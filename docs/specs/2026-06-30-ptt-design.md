@@ -75,7 +75,7 @@ ptt/
   runner.py         # run a routine: per-project fan-out, aggregation
   claude.py         # build & invoke `claude -p`; capture output
   git_ops.py        # classify origin, per-run clone/remove, branch naming
-  outcomes.py       # parse .ptt-result.json + reconcile with gh
+  outcomes.py       # read structured_output from stream-json + reconcile with gh
   notify.py         # build & send Postmark email
   logstore.py       # run/log directory layout + writers
   schedule.py       # generate/enable/remove systemd units
@@ -201,8 +201,9 @@ unset.
       `gh issue list --json number,url,state` (run in the clone).
    4. Invoke Claude (see §9) with cwd = clone, prompt on stdin, output streamed to
       `claude.stdout.jsonl` / `claude.stderr.log`, under a wall-clock timeout.
-   5. Read `.ptt-result.json` from the clone (written by Claude); reconcile with a
-      fresh `gh` snapshot (see §11). Write `projects/<name>/result.json`.
+   5. Read the schema-enforced result (`structured_output` from the final stream-json
+      `result` event); reconcile with a fresh `gh` snapshot (see §11). Write
+      `projects/<name>/result.json`.
    6. Delete the clone dir (`shutil.rmtree`). The branch, if pushed by Claude, remains on
       the remote. On step failure, the clone is still removed but all logs are retained.
    7. Append the outcome to the run's in-memory result list. Any exception here is
@@ -224,6 +225,8 @@ claude -p \
   --output-format stream-json --verbose \
   --permission-mode <mode | dangerously-skip-permissions> \
   [--model <model>] \
+  --json-schema '<result schema>' \
+  --disallowedTools ScheduleWakeup Monitor CronCreate \
   < <effective-prompt>
 ```
 
@@ -233,8 +236,8 @@ claude -p \
   1. Perform the task described above.
   2. When work warrants it, create a branch, commit, push, and open a PR (or open/close
      an issue) using `gh`.
-  3. **Before ending, write `.ptt-result.json` in the repo root** as a single JSON
-     object with this schema:
+  3. **Report the outcome as a structured result** — a single JSON object with this
+     schema:
      ```json
      {
        "status": "success | no_action | error",
@@ -244,6 +247,15 @@ claude -p \
        "summary": "1-3 sentence description of what was done or why nothing was"
      }
      ```
+- **Structured-output guard:** this schema is passed to `claude --json-schema`, so the
+  final message is forced to conform and is surfaced in the stream-json `result` event's
+  `structured_output` field. ptt reads it from there — it no longer depends on Claude
+  writing a file, which was an unreliable step (a model that ended its turn early left no
+  file and the whole run was lost).
+- **No-background guard:** `--disallowedTools ScheduleWakeup Monitor CronCreate` removes the
+  schedule-and-wait tools, so Claude cannot background long-running work and end its turn
+  expecting a re-invocation that never comes in one-shot mode. (Subagents via `Agent` stay
+  enabled — they run to completion within the turn.)
 - **Permission mode:** for unattended runs the effective flag is
   `--dangerously-skip-permissions` (chosen when `permission_mode = "bypass"`), because
   headless `-p` mode has no one to approve tool prompts. `acceptEdits` is offered for
@@ -281,7 +293,8 @@ claude -p \
 
 ## 11. Outcome detection & reconciliation
 
-Primary signal: the `.ptt-result.json` Claude writes (§9). Backstop: a `gh` diff.
+Primary signal: the schema-enforced `structured_output` in Claude's stream-json `result`
+event (§9). Backstop: a `gh` diff.
 
 `outcomes.py` reconciles claimed vs observed:
 - Compute the delta between pre- and post-run `gh pr list` / `gh issue list`
@@ -290,10 +303,10 @@ Primary signal: the `.ptt-result.json` Claude writes (§9). Backstop: a `gh` dif
   stands, `verified=true`.
 - If Claude claims an action but the gh delta does **not** confirm it → keep the
   claim but set `verified=false` and note "unverified" in the email.
-- If Claude reports `none`/no file but the gh delta shows a new PR/issue → report the
+- If Claude reports `none`/no result but the gh delta shows a new PR/issue → report the
   gh-observed action with `verified=true` and `source=gh`.
-- If `.ptt-result.json` is missing/unparseable and there is no gh delta → outcome is
-  `status=error, action=none, reason="no result file"`.
+- If the structured result is missing/unparseable and there is no gh delta → outcome is
+  `status=error, action=none, reason="claude produced no structured result"`.
 
 The reconciled per-project record (status, action, url, title, summary, verified,
 source, log paths, durations) is written to `projects/<name>/result.json` and included
@@ -334,7 +347,7 @@ marker in the run dir, attempt **one** retry, then give up without failing the r
 | Claude transient API error (429/5xx, e.g. 529) | Re-invoke with exponential backoff (up to `api_max_retries`, configurable); retries logged to `claude.retries.log`. Project → `error` only if every attempt fails. |
 | Claude non-zero exit (non-API)     | Project → `error` with exit code + last stderr lines. |
 | Claude timeout                     | Process group killed; project → `error (timeout)`. |
-| `.ptt-result.json` missing/bad     | Fall back to gh delta; else `error (no result file)`. |
+| Structured result missing/bad      | Fall back to gh delta; else `error (claude produced no structured result)`. |
 | Postmark send fails                | Logged + marker + one retry; run record unaffected. |
 
 Clone cleanup always runs in a `finally`. One project's failure never aborts the run.
@@ -393,13 +406,13 @@ Claude, and no real GitHub:
 - **Unit tests:**
   - `config.py`: valid/invalid TOML, name/path/projects validation, `~` expansion.
   - `outcomes.py`: every reconciliation branch in §11 against fixture gh snapshots +
-    `.ptt-result.json` fixtures (including missing/garbage files).
+    `structured_output` fixtures (including missing/garbage stream-json).
   - `notify.py`: Postmark payload shape + headers (urllib mocked); subject/body
     rendering for mixed outcomes; retry-on-failure behavior.
   - `schedule.py`: generated unit-file text (string comparison) and the install command
     sequence (subprocess mocked).
 - **Integration test:** put fake `claude` and `gh` executables on `PATH` (shell scripts
-  that emit canned `stream-json` and write a `.ptt-result.json`, and that fake
+  that emit canned `stream-json` with a `structured_output` result event, and that fake
   `gh pr/issue list` deltas). Run the full `runner` against a temp git repo with a fake
   `origin`; assert `run.json`, per-project `result.json`, log files, and the captured
   Postmark payload. Cover: success-with-PR, no-action, failure, timeout, unverified.

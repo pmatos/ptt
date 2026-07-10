@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from ptt import claude
+from ptt import claude, outcomes
 from ptt import models as m
 
 
@@ -37,7 +37,9 @@ def _routine(permission_mode=m.PermissionMode.BYPASS, model=None, effort=None):
 def test_build_prompt_appends_result_footer():
     out = claude.build_prompt("Do the audit.")
     assert "Do the audit." in out
-    assert ".ptt-result.json" in out
+    # The result contract is enforced by --json-schema, so the footer describes the
+    # fields but no longer tells the model to hand-write a result file.
+    assert ".ptt-result.json" not in out
     for field in ("status", "action", "url", "title", "summary"):
         assert field in out
 
@@ -67,6 +69,24 @@ def test_build_argv_accept_edits_uses_permission_mode():
     assert "--dangerously-skip-permissions" not in argv
 
 
+def test_build_argv_forces_structured_output_schema():
+    argv = claude.build_argv(_routine())
+    assert "--json-schema" in argv
+    schema = json.loads(argv[argv.index("--json-schema") + 1])
+    assert schema["type"] == "object"
+    assert set(schema["required"]) == {"status", "action", "url", "title", "summary"}
+    assert set(schema["properties"]["status"]["enum"]) == {s.value for s in m.Status}
+    assert set(schema["properties"]["action"]["enum"]) == {a.value for a in m.Action}
+
+
+def test_build_argv_disallows_schedule_and_wait_tools():
+    argv = claude.build_argv(_routine())
+    assert "--disallowedTools" in argv
+    i = argv.index("--disallowedTools")
+    # Variadic flag is last, so the tool names run to the end of argv.
+    assert argv[i + 1 :] == ["ScheduleWakeup", "Monitor", "CronCreate"]
+
+
 def test_build_argv_model_present_and_absent():
     assert "--model" not in claude.build_argv(_routine(model=None))
     argv = claude.build_argv(_routine(model="claude-opus-4-8"))
@@ -79,15 +99,17 @@ def test_build_argv_effort_present_and_absent():
     assert "--effort" in argv and "high" in argv
 
 
-def test_run_claude_success_writes_result_and_logs(fake_bin, tmp_path, monkeypatch):
+def test_run_claude_success_emits_structured_output_and_logs(
+    fake_bin, tmp_path, monkeypatch
+):
     monkeypatch.setenv("PTT_FAKE_MODE", "pr")
     wt = tmp_path / "wt"
     wt.mkdir()
     out, err = tmp_path / "o.jsonl", tmp_path / "e.log"
     rc, timed_out = claude.run_claude(_routine(), wt, "prompt", out, err, timeout_s=10)
     assert rc == 0 and timed_out is False
-    assert (wt / ".ptt-result.json").is_file()
-    assert out.read_text().strip()  # stream-json captured
+    assert not (wt / ".ptt-result.json").exists()  # no hand-written file anymore
+    assert "structured_output" in out.read_text()  # result delivered via stream-json
 
 
 def test_run_claude_error_returns_exit_code(fake_bin, tmp_path, monkeypatch):
@@ -198,21 +220,23 @@ def test_run_claude_retries_then_gives_up_on_persistent_529(
     assert "529" in retries_log.read_text()
 
 
-def test_run_claude_clears_stale_result_between_retries(
+def test_run_claude_stale_result_does_not_survive_retries(
     fake_bin, tmp_path, monkeypatch
 ):
-    # A prior attempt that writes .ptt-result.json then dies non-zero must not
-    # leave a stale success claim for a later failed attempt to be reconciled
-    # against — otherwise a failed run would be reported as success.
+    # A prior attempt that emits a success structured_output then dies non-zero must
+    # not leave a stale success claim for a later failed attempt to be reconciled
+    # against — otherwise a failed run would be reported as success. Each attempt
+    # truncates the stdout log, so the final failed attempt's log carries no claim.
     monkeypatch.setenv("PTT_FAKE_MODE", "api_error_stale_result")
     wt = tmp_path / "wt"
     wt.mkdir()
+    out = tmp_path / "o.jsonl"
     sleeper = _Sleeper()
     rc, timed_out = claude.run_claude(
         _routine(),
         wt,
         "prompt",
-        tmp_path / "o.jsonl",
+        out,
         tmp_path / "e",
         timeout_s=10,
         max_retries=1,
@@ -220,21 +244,22 @@ def test_run_claude_clears_stale_result_between_retries(
         sleep=sleeper,
     )
     assert rc == 1 and timed_out is False
-    assert len(sleeper.delays) == 1  # first attempt wrote the result, then retried
-    # the stale success result must be gone after the failed final attempt
-    assert not (wt / ".ptt-result.json").exists()
+    assert len(sleeper.delays) == 1  # first attempt emitted a result, then retried
+    # the stale success claim must be gone after the failed final attempt
+    assert outcomes.read_structured_output(out) is None
 
 
 def test_run_claude_succeeds_after_transient_529(fake_bin, tmp_path, monkeypatch):
     monkeypatch.setenv("PTT_FAKE_MODE", "api_error_then_pr")
     wt = tmp_path / "wt"
     wt.mkdir()
+    out = tmp_path / "o.jsonl"
     sleeper = _Sleeper()
     rc, timed_out = claude.run_claude(
         _routine(),
         wt,
         "prompt",
-        tmp_path / "o.jsonl",
+        out,
         tmp_path / "e",
         timeout_s=10,
         retry_base_s=0.01,
@@ -242,7 +267,8 @@ def test_run_claude_succeeds_after_transient_529(fake_bin, tmp_path, monkeypatch
     )
     assert rc == 0 and timed_out is False
     assert len(sleeper.delays) == 1  # failed once, then succeeded
-    assert (wt / ".ptt-result.json").is_file()
+    claimed = outcomes.read_structured_output(out)
+    assert claimed is not None and claimed.action == m.Action.PR
 
 
 def test_run_claude_does_not_retry_non_api_error(fake_bin, tmp_path, monkeypatch):

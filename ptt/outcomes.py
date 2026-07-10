@@ -1,6 +1,6 @@
-"""Outcome detection: snapshot gh state, parse Claude's .ptt-result.json, and
-reconcile the two into a final result (§11). reconcile() is pure so the whole
-truth table is unit-testable without gh."""
+"""Outcome detection: snapshot gh state, read Claude's schema-enforced result from
+the stream-json output, and reconcile the two into a final result (§11).
+reconcile() is pure so the whole truth table is unit-testable without gh."""
 
 from __future__ import annotations
 
@@ -41,12 +41,31 @@ def gh_snapshot(worktree: Path, log_path: Path) -> tuple[dict, bool]:
     return {"prs": prs, "issues": issues}, True
 
 
-def read_result_file(worktree: Path) -> m.Outcome | None:
-    f = Path(worktree) / ".ptt-result.json"
-    if not f.is_file():
+def read_structured_output(stdout_path: Path) -> m.Outcome | None:
+    """Return Claude's claimed outcome from the `structured_output` of the final
+    stream-json `result` event (produced by the `--json-schema` guard), or None if
+    the stream is missing, unparseable, or carries no valid structured result."""
+    last_result: dict | None = None
+    try:
+        with open(stdout_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(event, dict) and event.get("type") == "result":
+                    last_result = event
+    except OSError:
+        return None
+    if last_result is None:
+        return None
+    data = last_result.get("structured_output")
+    if not isinstance(data, dict):
         return None
     try:
-        data = json.loads(f.read_text())
         return m.Outcome(
             status=m.Status(data["status"]),
             action=m.Action(data["action"]),
@@ -54,7 +73,7 @@ def read_result_file(worktree: Path) -> m.Outcome | None:
             title=data.get("title", ""),
             summary=data.get("summary", ""),
         )
-    except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+    except (KeyError, ValueError, TypeError):
         return None
 
 
@@ -94,7 +113,7 @@ def reconcile(
             return _err(
                 m.Action.NONE, stderr_tail.strip() or f"claude exited {claude_rc}"
             )
-        return _err(m.Action.NONE, "no result file")
+        return _err(m.Action.NONE, "claude produced no structured result")
 
     if claimed.status == m.Status.ERROR:
         if observed:
