@@ -2,10 +2,18 @@
 """Fake `claude` for ptt tests.
 
 Behaviour switched via $PTT_FAKE_MODE: none|pr|unverified|issue_opened|
-issue_closed|commit|error|timeout. Reads (and discards) the prompt on stdin, emits a
-line of canned stream-json, and writes `.ptt-result.json` in cwd. For the `pr`
-and `issue_*` modes it also drops marker files that the fake `gh` reads, so the
-before/after gh snapshot shows a real delta.
+issue_closed|commit|error|timeout|api_error|api_error_then_pr|api_error_stale_result.
+Reads (and discards) the prompt on stdin, emits a line of canned stream-json, and
+writes `.ptt-result.json` in cwd. For the `pr` and `issue_*` modes it also drops
+marker files that the fake `gh` reads, so the before/after gh snapshot shows a real
+delta.
+
+`api_error` mimics `claude` giving up after its own internal retries: it emits a
+terminal stream-json `result` record with `is_error: true` and
+`api_error_status: 529` (like an overloaded server) and exits 1, writing no
+`.ptt-result.json`. `api_error_then_pr` does that only on the first invocation
+(tracked via a `.fake-attempts` counter in cwd) and succeeds with a PR afterwards,
+so ptt's outer retry can be exercised end-to-end.
 """
 import json
 import os
@@ -23,7 +31,38 @@ def result(d):
     (cwd / ".ptt-result.json").write_text(json.dumps(d))
 
 
-if mode == "pr":
+def api_error(status=529):
+    # Terminal record shaped like `claude`'s own after exhausting internal retries.
+    print(json.dumps({"type": "result", "subtype": "success", "is_error": True,
+                      "api_error_status": status, "num_turns": 1,
+                      "result": f"API Error: {status} Overloaded."}))
+    sys.exit(1)
+
+
+if mode == "api_error":
+    api_error()
+elif mode == "api_error_then_pr":
+    counter = cwd / ".fake-attempts"
+    n = int(counter.read_text()) if counter.is_file() else 0
+    counter.write_text(str(n + 1))
+    if n == 0:
+        api_error()
+    (cwd / ".fake-pr").write_text("1")
+    result({"status": "success", "action": "pr",
+            "url": "https://github.com/fake/repo/pull/1",
+            "title": "Add config loader", "summary": "Implemented after a retry."})
+elif mode == "api_error_stale_result":
+    # First attempt writes a success result and THEN dies with a 529; later
+    # attempts die without writing one. If the retry loop didn't clear the file,
+    # the stale success claim would survive the failed final attempt.
+    counter = cwd / ".fake-attempts"
+    n = int(counter.read_text()) if counter.is_file() else 0
+    counter.write_text(str(n + 1))
+    if n == 0:
+        result({"status": "success", "action": "none", "url": None,
+                "title": "wrote before dying", "summary": "stale claim"})
+    api_error()
+elif mode == "pr":
     (cwd / ".fake-pr").write_text("1")
     result({"status": "success", "action": "pr",
             "url": "https://github.com/fake/repo/pull/1",
