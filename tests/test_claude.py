@@ -331,6 +331,36 @@ def test_run_claude_resumes_between_retries_without_resetting(
     assert _invocations(wt) == ["fresh", "resume:sess-1", "resume:sess-1"]
 
 
+def test_run_claude_stays_sticky_when_resumed_attempt_omits_session(
+    fake_bin, tmp_path, monkeypatch
+):
+    # Once a session is established and we're resuming, a later failed attempt that
+    # emits no fresh session_id must NOT reset+restart (that would rebuild a divergent
+    # commit over an already-pushed branch — the bug this PR fixes); it must keep
+    # resuming the existing session. Only a never-established session resets.
+    monkeypatch.setenv("PTT_FAKE_MODE", "api_error_session_then_none")
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    resets = []
+    sleeper = _Sleeper()
+    rc, timed_out = claude.run_claude(
+        _routine(),
+        wt,
+        "prompt",
+        tmp_path / "o.jsonl",
+        tmp_path / "e",
+        timeout_s=10,
+        max_retries=2,
+        retry_base_s=0.01,
+        reset=lambda: (resets.append(True), True)[1],
+        sleep=sleeper,
+    )
+    assert rc == 1 and timed_out is False
+    assert resets == []  # never reset once a session was established
+    # first attempt establishes sess-1; both retries keep resuming it despite no new id
+    assert _invocations(wt) == ["fresh", "resume:sess-1", "resume:sess-1"]
+
+
 def test_run_claude_falls_back_to_reset_when_no_session(
     fake_bin, tmp_path, monkeypatch
 ):

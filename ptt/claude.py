@@ -155,11 +155,13 @@ def run_claude(
     read from the just-failed attempt's stream) so the worktree — including any
     commit or branch the prior attempt already pushed — is kept intact and the
     model continues its own work rather than redoing it from scratch (which would
-    diverge from an already-pushed branch and be rejected on push). Only if that
-    attempt established no session to resume does `run_claude` fall back to the
+    diverge from an already-pushed branch and be rejected on push). Only if *no*
+    attempt ever established a session to resume does `run_claude` fall back to the
     `reset` callback (if given) — discarding any local side effects — before a fresh
     attempt; if the reset returns False the retry is abandoned (returning the failed
-    result rather than running against a dirty tree) and reconciliation decides."""
+    result rather than running against a dirty tree) and reconciliation decides. Once
+    a session exists it stays sticky: a later attempt that emits no fresh id keeps
+    resuming the existing one rather than resetting."""
     retries = max(0, max_retries)  # always at least one attempt
     resume_session_id: str | None = None
     for attempt in range(retries + 1):
@@ -184,14 +186,19 @@ def run_claude(
             return rc, timed_out
         session_id = session_id_from_stream(stdout_path)
         if session_id is not None:
-            # Resume the same conversation next time; keep the worktree as-is.
+            # A fresh session id: resume that conversation next time, worktree as-is.
             resume_session_id = session_id
-        else:
-            # No session to resume: discard any local side effects and retry fresh;
-            # if the tree can't be cleaned, don't retry into a dirty state.
-            if reset is not None and not reset():
-                return rc, timed_out
-            resume_session_id = None
+        elif resume_session_id is None and reset is not None and not reset():
+            # No session was *ever* established (so nothing to resume) and the clone
+            # can't be cleaned: don't retry into a dirty tree — return the failure and
+            # let reconciliation decide. (When resume_session_id is set, `reset` is
+            # short-circuited and never called — see below.)
+            return rc, timed_out
+        # Otherwise keep going: either the no-session reset just succeeded and the next
+        # attempt runs fresh, or a prior attempt already established a session we keep
+        # resuming — a failed attempt with no fresh id doesn't mean it vanished, and
+        # resetting would rebuild a divergent commit over an already-pushed branch (the
+        # non-fast-forward bug this avoids).
         delay = backoff_delay(attempt, retry_base_s, retry_cap_s)
         _note_retry(stdout_path, attempt, retries, status, delay)
         sleep(delay)
