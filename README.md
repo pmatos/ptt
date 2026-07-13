@@ -35,7 +35,9 @@ Then it emails one summary per run over SMTP (any provider) and writes full logs
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/) (it provisions Python ≥ 3.11 automatically)
-- `claude`, `git`, and `gh` on `PATH`; `gh` authenticated (`gh auth login`)
+- `claude`, `git`, and `gh` on `PATH`; `gh` authenticated (`gh auth login`, then
+  `gh auth setup-git` so HTTPS clones reuse the token) — `ptt run` fails fast with a
+  clear message if `gh` is missing or logged out
 - Each project resolves to a github.com repo — a local checkout whose `origin` is on
   github.com, or a remote given as `gh:owner/repo` / a git URL. ptt always clones the remote
   fresh and deletes it after (a local checkout is used read-only, never run in)

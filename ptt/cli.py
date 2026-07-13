@@ -8,7 +8,7 @@ import os
 import shutil
 import sys
 
-from ptt import config, git_ops, logstore, netcheck, notify, runner, schedule
+from ptt import config, ghcheck, git_ops, logstore, netcheck, notify, runner, schedule
 from ptt import models as m
 
 
@@ -16,6 +16,13 @@ def _cmd_run(args) -> int:
     # Under the timer, fold the baked PTT_PATH into PATH before shelling out so
     # claude/git/gh resolve even if the unit's PATH was left stale (issue #15).
     schedule.apply_baked_path()
+    # Fail fast (before any clone or gh call) if gh is missing/logged out, rather
+    # than dying deep in the run with "gh snapshot failed" or hanging on git's own
+    # `Username for 'https://github.com'` prompt.
+    problem = ghcheck.gh_problem()
+    if problem is not None:
+        print(f"error: {problem}", file=sys.stderr)
+        return 2
     cfg = config.load_global_config()
     routine = config.load_routine(args.routine, cfg)
     run = runner.run_routine(routine, cfg, only_project=args.project, force=args.force)

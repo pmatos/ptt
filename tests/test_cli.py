@@ -1,7 +1,7 @@
 import json
 import os
 
-from ptt import cli, netcheck, notify
+from ptt import cli, ghcheck, netcheck, notify, runner
 
 
 def write_config(cfg_home, github_repo, tmp_path, name="audit", enabled=True):
@@ -39,6 +39,19 @@ def test_run_command_merges_baked_ptt_path(
     monkeypatch.setenv("PTT_PATH", "/baked/sentinel/bin")
     assert cli.main(["run", "audit"]) == 0
     assert os.environ["PATH"].split(os.pathsep)[0] == "/baked/sentinel/bin"
+
+
+def test_run_aborts_cleanly_when_gh_not_authenticated(monkeypatch, capsys):
+    monkeypatch.setattr(
+        ghcheck, "gh_problem", lambda: "gh is not authenticated — run `gh auth login`"
+    )
+    called = {"n": 0}
+    monkeypatch.setattr(
+        runner, "run_routine", lambda *a, **k: called.__setitem__("n", called["n"] + 1)
+    )
+    assert cli.main(["run", "audit"]) == 2
+    assert called["n"] == 0
+    assert "gh is not authenticated" in capsys.readouterr().err
 
 
 def test_doctor_ok(fake_bin, github_repo, tmp_xdg, tmp_path, monkeypatch):

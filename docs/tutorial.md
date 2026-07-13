@@ -17,8 +17,14 @@ lets Claude open a PR when it finds something worth doing, and emails you a summ
 - **uv** — <https://docs.astral.sh/uv/> (installs the right Python for you)
 - **git** and the **GitHub CLI** (`gh`), authenticated:
   ```bash
-  gh auth login
+  gh auth login          # answer "yes" to "Authenticate Git with your GitHub
+                         # credentials?" so HTTPS clones don't prompt for a username
   ```
+  If you logged in earlier without that step, run `gh auth setup-git` once — it points
+  git's credential helper at your gh token, so ptt's HTTPS clones authenticate silently
+  instead of stopping at git's `Username for 'https://github.com'` prompt. `ptt run`
+  refuses to start (with a clear message) when `gh` is missing or logged out, so it never
+  hangs on that prompt mid-run.
 - **A GitHub project** to point ptt at — either a local clone whose `origin` is on
   github.com, or a remote you name as `gh:owner/repo` / a git URL. Either way ptt clones the
   remote fresh each run and deletes it afterward (a local clone is only read for its
@@ -388,6 +394,8 @@ unattended).
 | Symptom                              | Likely cause / fix                                                    |
 |--------------------------------------|----------------------------------------------------------------------|
 | `✗ gh authenticated`                 | Run `gh auth login`.                                                  |
+| `error: gh is not authenticated` (from `ptt run`) | `gh` is logged out; run `gh auth login` (then `gh auth setup-git`). ptt fails fast here rather than hang on git's `Username for 'https://github.com'` prompt. |
+| `ptt run` stops at `Username for 'https://github.com'` | A private repo is cloned over HTTPS with no git credentials. Run `gh auth setup-git` so git reuses your gh token. |
 | `✗ smtp password`                    | Set `PTT_SMTP_PASSWORD` (env + `~/.config/ptt/env`).                  |
 | `[email] refuses to send credentials…` | `smtp_security = "none"` with a username only works on a loopback host; use `starttls`/`ssl` for a remote host. |
 | Project shows `not a GitHub repo`    | Its `origin` remote must point at github.com.                         |
