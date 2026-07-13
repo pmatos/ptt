@@ -274,13 +274,20 @@ claude -p \
   `[defaults]` and are per-routine overridable (defaults 3 / 15s / 120s; `api_max_retries = 0`
   disables the outer retry). Each retry is recorded in a sibling `claude.retries.log`; the
   canonical `claude.stdout.jsonl`/`.stderr.log` keep the final attempt. Timeouts and
-  non-API failures are never retried. Because every attempt reuses the same throwaway
-  clone, the runner passes `run_claude` a `reset` callback (`git_ops.reset_worktree`:
-  `git reset --hard origin/<base>` + `git clean -fdx`) invoked before each retry, so a
-  failed attempt's local edits or unpushed commit can't leak into the next attempt and be
-  mis-reported as `no_action`; if the reset fails the retry is abandoned. A local reset
-  cannot undo an already-pushed branch or opened PR — those remote side effects are still
-  caught by the before/after `gh` snapshot bracketing the whole loop.
+  non-API failures are never retried. A transient error is a pause, not a reason to start
+  over: because every attempt reuses the same throwaway clone, a fresh re-run would redo
+  (and diverge from) whatever a prior attempt already did — including a branch it pushed,
+  whose divergent re-push GitHub then rejects non-fast-forward. So each retry **resumes**
+  the interrupted conversation: `run_claude` reads the `session_id` from the failed
+  attempt's stream and re-invokes `claude -p --resume <session_id>`, leaving the clone
+  (edits, commits, any pushed branch) intact so the model continues from where it left off
+  rather than restarting. Only if the attempt established no session to resume does
+  `run_claude` fall back to the runner's `reset` callback (`git_ops.reset_worktree`:
+  `git reset --hard origin/<base>` + `git clean -fdx`) and a fresh attempt; if that reset
+  fails the retry is abandoned. Resuming keeps ptt from having to reconcile a between-retry
+  rewind against an already-pushed run branch — the gap that made a plain reset leave a
+  divergent branch on the remote (#23) — while the before/after `gh` snapshot bracketing
+  the whole loop still catches whatever the final attempt actually left behind.
 
 ## 10. Security considerations
 

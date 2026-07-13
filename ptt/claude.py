@@ -13,10 +13,14 @@ Separately, `claude` retries transient API failures internally, but during a
 sustained overload window it exhausts those retries and exits non-zero with an
 `api_error_status` (e.g. 529) in its stream-json output. `run_claude` adds an
 outer retry with exponential backoff for exactly those cases, so a single blip in
-Anthropic availability doesn't fail an otherwise-fine project. Because those retries
-reuse the same worktree, `run_claude` resets it (via the caller's `reset` callback)
-between attempts so a failed attempt's local edits/commits can't leak into the next
-one and be mis-reported as `no_action`."""
+Anthropic availability doesn't fail an otherwise-fine project. A transient error
+is a pause, not a reason to start over: each retry **resumes** the interrupted
+conversation (`claude -p --resume <session_id>`, the id read from the failed
+attempt's stream), so the worktree — including any commit or branch a prior
+attempt already pushed — is kept intact and the model continues from where it left
+off rather than redoing (and diverging from) its own work. Only if no session was
+ever established (claude died before emitting one) does `run_claude` fall back to
+the caller's `reset` callback and a fresh attempt."""
 
 from __future__ import annotations
 
@@ -89,12 +93,29 @@ got): a single object with these keys:
 """
 
 
+# Stdin for a resumed attempt after a transient API error. The original task and
+# result contract are already in the resumed transcript (and `--json-schema` still
+# re-enforces the result), so this only nudges the model to continue — not restart.
+RESUME_PROMPT = """\
+A transient API error interrupted your previous turn before you finished. This run
+resumes that same session: the working tree — including any edits, commits, and any
+branch you already pushed — is exactly as you left it. Pick up where you left off and
+carry the task to completion. Do not start over or repeat work already done (e.g.
+don't re-create a branch or re-open a PR that already exists). When you finish,
+report the structured result ptt requires, as instructed earlier.
+"""
+
+
 def build_prompt(prompt_text: str) -> str:
     return f"{prompt_text}\n\n{RESULT_FOOTER}"
 
 
-def build_argv(routine: m.Routine) -> list[str]:
+def build_argv(
+    routine: m.Routine, *, resume_session_id: str | None = None
+) -> list[str]:
     argv = ["claude", "-p", "--output-format", "stream-json", "--verbose"]
+    if resume_session_id:
+        argv += ["--resume", resume_session_id]
     if routine.permission_mode == m.PermissionMode.BYPASS:
         argv.append("--dangerously-skip-permissions")
     else:
@@ -130,30 +151,54 @@ def run_claude(
     are never retried. The stdout/stderr logs hold the last attempt; each retry is
     noted in a sibling `claude.retries.log`.
 
-    Because every attempt reuses the same `worktree`, a failed attempt may have left
-    local side effects behind (edits, an unpushed commit) before its final API
-    request failed. Before each retry the `reset` callback (if given) is invoked to
-    discard them so the next attempt starts from the pre-attempt state; if it returns
-    False the retry is abandoned — returning the failed result rather than running
-    against a dirty tree — and reconciliation (incl. the gh snapshot) decides the
-    outcome."""
+    Each retry **resumes** the interrupted conversation (`--resume <session_id>`,
+    read from the just-failed attempt's stream) so the worktree — including any
+    commit or branch the prior attempt already pushed — is kept intact and the
+    model continues its own work rather than redoing it from scratch (which would
+    diverge from an already-pushed branch and be rejected on push). Only if *no*
+    attempt ever established a session to resume does `run_claude` fall back to the
+    `reset` callback (if given) — discarding any local side effects — before a fresh
+    attempt; if the reset returns False the retry is abandoned (returning the failed
+    result rather than running against a dirty tree) and reconciliation decides. Once
+    a session exists it stays sticky: a later attempt that emits no fresh id keeps
+    resuming the existing one rather than resetting."""
     retries = max(0, max_retries)  # always at least one attempt
+    resume_session_id: str | None = None
     for attempt in range(retries + 1):
         # Each attempt truncates stdout_path (see _run_once), so the reconciled
         # claim always comes from the last attempt's structured_output — a prior
-        # attempt that died non-zero can't leave a stale claim behind.
+        # attempt that died non-zero can't leave a stale claim behind. Extract the
+        # session id below *before* the next attempt overwrites the log.
+        stdin_text = RESUME_PROMPT if resume_session_id else build_prompt(prompt_text)
         rc, timed_out = _run_once(
-            routine, worktree, prompt_text, stdout_path, stderr_path, timeout_s
+            routine,
+            worktree,
+            stdin_text,
+            stdout_path,
+            stderr_path,
+            timeout_s,
+            resume_session_id=resume_session_id,
         )
         if rc == 0 or timed_out:
             return rc, timed_out
         status = last_api_error_status(stdout_path)
         if status not in RETRYABLE_API_STATUSES or attempt == retries:
             return rc, timed_out
-        # Discard any local side effects this failed attempt left in the worktree
-        # before retrying; if it can't be cleaned, don't retry into a dirty tree.
-        if reset is not None and not reset():
+        session_id = session_id_from_stream(stdout_path)
+        if session_id is not None:
+            # A fresh session id: resume that conversation next time, worktree as-is.
+            resume_session_id = session_id
+        elif resume_session_id is None and reset is not None and not reset():
+            # No session was *ever* established (so nothing to resume) and the clone
+            # can't be cleaned: don't retry into a dirty tree — return the failure and
+            # let reconciliation decide. (When resume_session_id is set, `reset` is
+            # short-circuited and never called — see below.)
             return rc, timed_out
+        # Otherwise keep going: either the no-session reset just succeeded and the next
+        # attempt runs fresh, or a prior attempt already established a session we keep
+        # resuming — a failed attempt with no fresh id doesn't mean it vanished, and
+        # resetting would rebuild a divergent commit over an already-pushed branch (the
+        # non-fast-forward bug this avoids).
         delay = backoff_delay(attempt, retry_base_s, retry_cap_s)
         _note_retry(stdout_path, attempt, retries, status, delay)
         sleep(delay)
@@ -163,15 +208,17 @@ def run_claude(
 def _run_once(
     routine: m.Routine,
     worktree: Path,
-    prompt_text: str,
+    stdin_text: str,
     stdout_path: Path,
     stderr_path: Path,
     timeout_s: float,
+    *,
+    resume_session_id: str | None = None,
 ) -> tuple[int, bool]:
-    """One `claude -p` invocation. Returns (exit_code, timed_out). On timeout the
-    whole process group is terminated and exit_code is 124."""
-    argv = build_argv(routine)
-    full_prompt = build_prompt(prompt_text)
+    """One `claude -p` invocation (resuming `resume_session_id` if given), with
+    `stdin_text` piped in. Returns (exit_code, timed_out). On timeout the whole
+    process group is terminated and exit_code is 124."""
+    argv = build_argv(routine, resume_session_id=resume_session_id)
     with open(stdout_path, "w") as out, open(stderr_path, "w") as err:
         p = subprocess.Popen(
             argv,
@@ -183,11 +230,35 @@ def _run_once(
             start_new_session=True,
         )
         try:
-            p.communicate(input=full_prompt, timeout=timeout_s)
+            p.communicate(input=stdin_text, timeout=timeout_s)
             return p.returncode, False
         except subprocess.TimeoutExpired:
             _terminate_group(p)
             return 124, True
+
+
+def session_id_from_stream(stdout_path: Path) -> str | None:
+    """Return the `session_id` carried by the stream-json output (the last one seen,
+    so a resumed session that forks to a new id is tracked forward), or None if the
+    log is missing or carries no session id. Used to resume the conversation on a
+    retry. Tolerant of partial/non-JSON lines so a truncated log never raises."""
+    session_id: str | None = None
+    try:
+        with open(stdout_path) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                s = obj.get("session_id")
+                if isinstance(s, str) and s:
+                    session_id = s
+    except OSError:
+        return None
+    return session_id
 
 
 def last_api_error_status(stdout_path: Path) -> int | None:

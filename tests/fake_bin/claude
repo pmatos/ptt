@@ -2,19 +2,28 @@
 """Fake `claude` for ptt tests.
 
 Behaviour switched via $PTT_FAKE_MODE: none|pr|unverified|issue_opened|
-issue_closed|commit|error|timeout|api_error|api_error_then_pr|api_error_stale_result.
-Reads (and discards) the prompt on stdin, then emits canned stream-json. The
-claimed outcome is delivered the way the real `--json-schema` guard delivers it: as
-`structured_output` on the final `result` event (never a `.ptt-result.json` file).
-For the `pr` and `issue_*` modes it also drops marker files that the fake `gh`
-reads, so the before/after gh snapshot shows a real delta.
+issue_closed|commit|error|timeout|api_error|api_error_no_session|
+api_error_then_pr|api_error_stale_result. Reads (and discards) the prompt on
+stdin, then emits canned stream-json. The claimed outcome is delivered the way
+the real `--json-schema` guard delivers it: as `structured_output` on the final
+`result` event (never a `.ptt-result.json` file). For the `pr` and `issue_*`
+modes it also drops marker files that the fake `gh` reads, so the before/after
+gh snapshot shows a real delta.
+
+Every emitted record carries a `session_id` (like real `claude`), so ptt can
+resume the conversation on a retry. Each invocation appends a line to
+`.fake-invocations` in cwd — `fresh` or `resume:<id>` — so retry tests can assert
+that a retry RESUMES the prior session (`--resume <id>`) rather than starting
+over.
 
 `api_error` mimics `claude` giving up after its own internal retries: it emits a
 terminal stream-json `result` record with `is_error: true` and
 `api_error_status: 529` (like an overloaded server) and exits 1, with no valid
-`structured_output`. `api_error_then_pr` does that only on the first invocation
-(tracked via a `.fake-attempts` counter in cwd) and succeeds with a PR afterwards,
-so ptt's outer retry can be exercised end-to-end.
+`structured_output`. `api_error_no_session` does the same but emits NO
+`session_id` (as if `claude` died before establishing a session), so ptt cannot
+resume and must fall back to reset+fresh. `api_error_then_pr` errors only on the
+first invocation (tracked via a `.fake-attempts` counter in cwd) and succeeds
+with a PR afterwards, so ptt's outer retry can be exercised end-to-end.
 """
 import json
 import os
@@ -22,25 +31,59 @@ import pathlib
 import sys
 import time
 
+argv = sys.argv[1:]
 sys.stdin.read()  # consume the prompt
 mode = os.environ.get("PTT_FAKE_MODE", "none")
 cwd = pathlib.Path.cwd()
-print(json.dumps({"type": "system", "subtype": "fake_claude", "mode": mode}))
+
+SESSION_ID = "sess-1"
+
+# Record how this invocation was launched so retry tests can distinguish a fresh
+# run from a resumed one (`claude -p --resume <id>`).
+resume_id = None
+if "--resume" in argv:
+    resume_id = argv[argv.index("--resume") + 1]
+with (cwd / ".fake-invocations").open("a") as fh:
+    fh.write((f"resume:{resume_id}" if resume_id else "fresh") + "\n")
+
+# api_error_no_session simulates claude dying before a session exists, so no
+# session_id is ever emitted and ptt's retry cannot resume. api_error_session_then_none
+# emits one only on the FIRST attempt, so a later *resumed* attempt lacks a fresh id —
+# ptt must then keep resuming the established session rather than reset.
+if mode == "api_error_session_then_none":
+    _c = cwd / ".fake-attempts"
+    emit_session = (int(_c.read_text()) if _c.is_file() else 0) == 0
+else:
+    emit_session = mode != "api_error_no_session"
+
+
+def emit(d):
+    print(json.dumps({**d, "session_id": SESSION_ID} if emit_session else d))
+
+
+emit({"type": "system", "subtype": "fake_claude", "mode": mode})
 
 
 def result(d):
-    print(json.dumps({"type": "result", "subtype": "success", "structured_output": d}))
+    emit({"type": "result", "subtype": "success", "structured_output": d})
 
 
 def api_error(status=529):
     # Terminal record shaped like `claude`'s own after exhausting internal retries.
-    print(json.dumps({"type": "result", "subtype": "success", "is_error": True,
-                      "api_error_status": status, "num_turns": 1,
-                      "result": f"API Error: {status} Overloaded."}))
+    emit({"type": "result", "subtype": "success", "is_error": True,
+          "api_error_status": status, "num_turns": 1,
+          "result": f"API Error: {status} Overloaded."})
     sys.exit(1)
 
 
-if mode == "api_error":
+if mode in ("api_error", "api_error_no_session"):
+    api_error()
+elif mode == "api_error_session_then_none":
+    # First attempt establishes a session (emit_session True above), later attempts
+    # emit none — every attempt still dies with a retryable 529.
+    counter = cwd / ".fake-attempts"
+    n = int(counter.read_text()) if counter.is_file() else 0
+    counter.write_text(str(n + 1))
     api_error()
 elif mode == "api_error_then_pr":
     counter = cwd / ".fake-attempts"

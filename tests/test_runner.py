@@ -69,6 +69,27 @@ def test_run_pr_is_verified_and_cleaned(fake_bin, github_repo, tmp_path, monkeyp
     assert not (r.work_dir / run.run_id).exists()
 
 
+def test_run_completes_after_transient_529_via_resume(
+    fake_bin, github_repo, tmp_path, monkeypatch
+):
+    # End-to-end: a 529 on the first attempt must not fail the project. The retry
+    # resumes the interrupted session (rather than rewinding the clone) and finishes,
+    # opening the PR — reconciled as a verified PR against the gh before/after diff.
+    monkeypatch.setenv("PTT_FAKE_MODE", "api_error_then_pr")
+    r = make_routine(tmp_path, [github_repo])
+    r.api_max_retries = 2
+    r.api_retry_base_seconds = 0.01
+    r.api_retry_cap_seconds = 0.01
+    run = runner.run_routine(r, make_global())
+    assert run.overall_status == m.Status.SUCCESS
+    p = run.projects[0]
+    assert p.action == m.Action.PR and p.verified is True
+    # a retry actually happened (the clone is deleted post-run, so assert on the
+    # persisted breadcrumb rather than the in-clone invocations log)
+    retries_log = Path(p.log_dir) / "claude.retries.log"
+    assert retries_log.is_file() and "529" in retries_log.read_text()
+
+
 def test_run_threads_retry_knobs_into_claude(
     fake_bin, github_repo, tmp_path, monkeypatch
 ):
