@@ -31,9 +31,12 @@ def gh_problem(
     by proc.run, so nothing leaks to the console on the happy path."""
     if which("gh") is None:
         return _NOT_FOUND
-    # Scope to github.com: bare `gh auth status` probes every configured host and
-    # exits non-zero if any one is broken, so a stale GitHub Enterprise login would
-    # wrongly fail this preflight even though every ptt remote is a github.com repo.
-    if run(["gh", "auth", "status", "--hostname", "github.com"]).returncode != 0:
+    # Scope to the *active* github.com account: a bare `gh auth status` probes every
+    # configured host, and even `--hostname github.com` alone tests every github.com
+    # account and fails if any is broken. `--active` checks only the account gh uses
+    # for github.com — the one ptt's later `gh pr/issue` calls target — so a stale
+    # Enterprise host or an expired inactive account can't wrongly fail this preflight.
+    cmd = ["gh", "auth", "status", "--hostname", "github.com", "--active"]
+    if run(cmd).returncode != 0:
         return _LOGGED_OUT
     return None

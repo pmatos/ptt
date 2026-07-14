@@ -43,6 +43,14 @@ def test_auth_check_is_scoped_to_github_com():
         return Completed(0, "", "Logged in to github.com")
 
     ghcheck.gh_problem(which=lambda _: "/usr/bin/gh", run=run)
-    # A stale non-github.com host must not fail the preflight, so the probe is
-    # pinned to github.com rather than the all-hosts default.
-    assert seen["cmd"] == ["gh", "auth", "status", "--hostname", "github.com"]
+    # A stale non-github.com host — or an expired inactive github.com account — must
+    # not fail the preflight, so the probe is pinned to the active github.com account
+    # (the one ptt's later gh calls use) rather than the all-hosts/all-accounts default.
+    assert seen["cmd"] == [
+        "gh",
+        "auth",
+        "status",
+        "--hostname",
+        "github.com",
+        "--active",
+    ]
