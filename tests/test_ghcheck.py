@@ -33,3 +33,16 @@ def test_does_not_probe_auth_when_gh_missing():
 
     ghcheck.gh_problem(which=lambda _: None, run=run)
     assert called["n"] == 0
+
+
+def test_auth_check_is_scoped_to_github_com():
+    seen = {}
+
+    def run(cmd, **kw):
+        seen["cmd"] = cmd
+        return Completed(0, "", "Logged in to github.com")
+
+    ghcheck.gh_problem(which=lambda _: "/usr/bin/gh", run=run)
+    # A stale non-github.com host must not fail the preflight, so the probe is
+    # pinned to github.com rather than the all-hosts default.
+    assert seen["cmd"] == ["gh", "auth", "status", "--hostname", "github.com"]
