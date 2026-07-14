@@ -375,8 +375,9 @@ systemctl --user list-timers | grep ptt   # the raw systemd view
 ## 11. Iterating day to day
 
 - **Change the prompt or projects** — just edit the files; the next run picks them up.
-- **Pause without deleting** — set `enabled = false` in the routine (the timer skips it),
-  or run manually with `--force`.
+- **Pause without deleting** — set `enabled = false` in the routine. A paused routine
+  exits cleanly (`0`) when its timer fires — even with `gh` logged out, since it does no
+  GitHub work and skips the `gh` preflight — and `--force` runs it anyway.
 - **Stop scheduling** — `ptt uninstall code-audit` removes the timer.
 
 ## About permissions

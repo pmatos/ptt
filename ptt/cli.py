@@ -16,15 +16,18 @@ def _cmd_run(args) -> int:
     # Under the timer, fold the baked PTT_PATH into PATH before shelling out so
     # claude/git/gh resolve even if the unit's PATH was left stale (issue #15).
     schedule.apply_baked_path()
-    # Fail fast (before any clone or gh call) if gh is missing/logged out, rather
-    # than dying deep in the run with "gh snapshot failed" or hanging on git's own
-    # `Username for 'https://github.com'` prompt.
-    problem = ghcheck.gh_problem()
-    if problem is not None:
-        print(f"error: {problem}", file=sys.stderr)
-        return 2
     cfg = config.load_global_config()
     routine = config.load_routine(args.routine, cfg)
+    # Fail fast (before any clone or gh call) if gh is missing/logged out, rather
+    # than dying deep in the run with "gh snapshot failed" or hanging on git's own
+    # `Username for 'https://github.com'` prompt. Only when the run will actually
+    # proceed: a disabled routine without --force does no gh work (run_routine
+    # exits 0), so preflighting it would wrongly fail a paused routine.
+    if routine.enabled or args.force:
+        problem = ghcheck.gh_problem()
+        if problem is not None:
+            print(f"error: {problem}", file=sys.stderr)
+            return 2
     run = runner.run_routine(routine, cfg, only_project=args.project, force=args.force)
     print(notify.build_subject(run))
     print(notify.build_text(run))
