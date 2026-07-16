@@ -200,6 +200,18 @@ def test_doctor_flags_missing_command_exe(tmp_xdg, tmp_path, monkeypatch):
     assert cli.main(["doctor"]) != 0
 
 
+def test_doctor_flags_non_executable_command(tmp_xdg, tmp_path, monkeypatch):
+    # A configured command path that exists but isn't executable would fail at
+    # Popen; doctor must catch it (os.access X_OK), not pass it on Path.is_file().
+    script = tmp_path / "not_exec.py"
+    script.write_text("print('hi')\n")
+    script.chmod(0o644)
+    write_command_config(tmp_xdg["config"], tmp_path, [str(script)])
+    monkeypatch.setenv("PTT_SMTP_PASSWORD", "pw")
+    monkeypatch.setenv("PATH", "")
+    assert cli.main(["doctor"]) != 0
+
+
 def test_doctor_project_routine_still_requires_git_tools(
     github_repo, tmp_xdg, tmp_path, monkeypatch
 ):

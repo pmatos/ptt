@@ -199,11 +199,13 @@ def _cmd_doctor(args) -> int:
             check(f"routine {name}", True)
             if isinstance(r, m.CommandRoutine):
                 exe = r.command[0]
-                found = shutil.which(exe) is not None or Path(exe).is_file()
+                # os.access(X_OK), not is_file: a path that exists but isn't
+                # executable would pass here yet fail at Popen with PermissionError.
+                found = shutil.which(exe) is not None or os.access(exe, os.X_OK)
                 check(
                     f"routine {name} command",
                     found,
-                    "" if found else f"{exe} not found",
+                    "" if found else f"{exe} not found or not executable",
                 )
 
     if smtp_password_missing:
