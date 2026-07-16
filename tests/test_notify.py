@@ -316,6 +316,16 @@ def test_md_to_html_covers_all_branches():
     assert "<script>" not in html
 
 
+def test_build_command_html_text_escapes_html():
+    # Text format must not let arbitrary command stdout inject live HTML into the
+    # email's HTML alternative (e.g. a copied <img onerror=...> from a mail digest).
+    out = notify.build_command_html(
+        "<img src=x onerror=alert(1)> & done", m.BodyFormat.TEXT
+    )
+    assert "<img" not in out
+    assert "&lt;img" in out and "&amp;" in out
+
+
 def test_md_to_html_closes_open_list_before_every_block():
     # An open list is closed exactly once whether the next line is a heading of any
     # level, a paragraph, or the end of input.

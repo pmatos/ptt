@@ -56,7 +56,9 @@ def build_text(run: m.RunResult) -> str:
 
 
 def build_html(text: str) -> str:
-    return f"<pre>{text}</pre>"
+    # Escape so arbitrary content (command stdout, titles) can't inject live markup
+    # into the HTML alternative — it must render as literal text inside the <pre>.
+    return f"<pre>{html.escape(text)}</pre>"
 
 
 def send(
