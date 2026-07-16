@@ -4,6 +4,8 @@ never written into the rendered message."""
 
 from __future__ import annotations
 
+import html
+import re
 import smtplib
 from email.message import EmailMessage
 from pathlib import Path
@@ -96,12 +98,123 @@ def notify(
         return
     subject = build_subject(run)
     text = build_text(run)
-    html = build_html(text)
+    _send_with_marker(subject, text, build_html(text), email_cfg, password, marker)
+
+
+def _send_with_marker(subject, text, html_body, email_cfg, password, marker) -> None:
+    """Attempt to send (one retry); on repeated failure drop the debuggable marker.
+    Shared by the project (`notify`) and command (`notify_command`) send paths."""
     last = None
     for _ in range(2):
         try:
-            send(subject, text, html, email_cfg, password)
+            send(subject, text, html_body, email_cfg, password)
             return
         except Exception as e:  # email must never crash the run
             last = e
     marker.write_text(f"SMTP send failed: {last}")
+
+
+# ---------- command routines ----------
+
+
+def md_to_html(md: str) -> str:
+    """Render a small Markdown subset (headings, bold, italic, lists, paragraphs)
+    to HTML for a command routine's digest email. Deliberately minimal — not a
+    general Markdown engine — and always HTML-escapes text so command output can
+    never inject raw markup."""
+
+    def inline(t: str) -> str:
+        t = html.escape(t)
+        t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
+        t = re.sub(r"\*(?!\s)(.+?)\*", r"<em>\1</em>", t)
+        return t
+
+    out = [
+        '<div style="font-family:system-ui,sans-serif;max-width:720px;line-height:1.5">'
+    ]
+    inlist = False
+    for line in md.splitlines():
+        if line.startswith("### "):
+            if inlist:
+                out.append("</ul>")
+                inlist = False
+            out.append(f"<h3 style='margin:.8em 0 .2em'>{inline(line[4:])}</h3>")
+        elif line.startswith("## "):
+            if inlist:
+                out.append("</ul>")
+                inlist = False
+            out.append(
+                f"<h2 style='border-bottom:1px solid #ddd;padding-bottom:.2em'>"
+                f"{inline(line[3:])}</h2>"
+            )
+        elif line.startswith("# "):
+            if inlist:
+                out.append("</ul>")
+                inlist = False
+            out.append(f"<h1>{inline(line[2:])}</h1>")
+        elif line.startswith("- "):
+            if not inlist:
+                out.append("<ul>")
+                inlist = True
+            out.append(f"<li>{inline(line[2:])}</li>")
+        elif not line.strip():
+            if inlist:
+                out.append("</ul>")
+                inlist = False
+        else:
+            if inlist:
+                out.append("</ul>")
+                inlist = False
+            out.append(f"<p style='margin:.2em 0'>{inline(line)}</p>")
+    if inlist:
+        out.append("</ul>")
+    out.append("</div>")
+    return "\n".join(out)
+
+
+def should_send_command(run: m.CommandRunResult, on: m.EmailOn) -> bool:
+    if on == m.EmailOn.FAILURES:
+        return run.status == m.Status.ERROR
+    if on == m.EmailOn.CHANGES:
+        return run.stdout_len > 0
+    return True  # ALWAYS (and the safe default)
+
+
+def build_command_subject(run: m.CommandRunResult) -> str:
+    state = (
+        "ok" if run.status != m.Status.ERROR else f"failed ({run.reason or 'error'})"
+    )
+    return f"[ptt] {run.routine} — {state}"
+
+
+def build_command_body(run: m.CommandRunResult, stdout_text: str) -> str:
+    return f"{stdout_text}\n— run {run.run_id} · {run.run_dir}"
+
+
+def build_command_html(body: str, fmt: m.BodyFormat) -> str:
+    return md_to_html(body) if fmt == m.BodyFormat.MARKDOWN else build_html(body)
+
+
+def notify_command(
+    run: m.CommandRunResult,
+    notify_enabled: bool,
+    body_format: m.BodyFormat,
+    email_cfg: m.EmailConfig,
+    password: str | None,
+    run_dir,
+    stdout_text: str,
+) -> None:
+    """Email a command routine's stdout per policy; never raises. `notify_enabled`
+    is the routine's own master switch (False = the command delivers its own output,
+    so ptt stays silent). On repeated failure (or a missing password) drop a
+    .email-failed marker in the run dir."""
+    if not notify_enabled or not should_send_command(run, email_cfg.on):
+        return
+    marker = Path(run_dir) / ".email-failed"
+    if email_cfg.smtp_username and not password:
+        marker.write_text(f"no SMTP password in ${email_cfg.smtp_password_env}")
+        return
+    subject = build_command_subject(run)
+    body = build_command_body(run, stdout_text)
+    html_body = build_command_html(body, body_format)
+    _send_with_marker(subject, body, html_body, email_cfg, password, marker)

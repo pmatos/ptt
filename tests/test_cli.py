@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 
 from ptt import cli, ghcheck, netcheck, notify, runner
 
@@ -17,6 +18,71 @@ def write_config(cfg_home, github_repo, tmp_path, name="audit", enabled=True):
         f'name="{name}"\nenabled={"true" if enabled else "false"}\n'
         f'prompt="{prompt}"\nschedule="Mon..Fri 05:00"\nprojects=["{github_repo}"]\n'
     )
+
+
+def write_command_config(cfg_home, tmp_path, argv, name="mail-digest", notify=True):
+    d = cfg_home / "ptt"
+    (d / "routines").mkdir(parents=True, exist_ok=True)
+    (d / "config.toml").write_text(
+        '[email]\nfrom="a@x.com"\nto="b@x.com"\non="always"\n'
+        'smtp_host="smtp.example.com"\nsmtp_username="user"\n'
+    )
+    argv_toml = ", ".join(json.dumps(a) for a in argv)
+    (d / "routines" / f"{name}.toml").write_text(
+        f'name="{name}"\nschedule="*-*-* 07:00:00"\n'
+        f"command=[{argv_toml}]\nnotify={'true' if notify else 'false'}\n"
+    )
+
+
+def test_run_dispatches_command_routine(tmp_xdg, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("PTT_SMTP_PASSWORD", "pw")
+    monkeypatch.setattr(notify, "send", lambda *a, **k: None)
+    probed = {"n": 0}
+    monkeypatch.setattr(
+        ghcheck,
+        "gh_problem",
+        lambda: probed.__setitem__("n", probed["n"] + 1) or "gh bad",
+    )
+    write_command_config(
+        tmp_xdg["config"], tmp_path, [sys.executable, "-c", "print('HELLO DIGEST')"]
+    )
+    rc = cli.main(["run", "mail-digest"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[ptt] mail-digest — ok" in out
+    assert "HELLO DIGEST" in out
+    assert probed["n"] == 0  # gh preflight skipped for command routines
+
+
+def test_run_command_routine_rejects_project_flag(tmp_xdg, tmp_path, monkeypatch):
+    called = {"n": 0}
+    monkeypatch.setattr(
+        runner,
+        "run_command_routine",
+        lambda *a, **k: called.__setitem__("n", called["n"] + 1),
+    )
+    write_command_config(
+        tmp_xdg["config"], tmp_path, [sys.executable, "-c", "print('x')"]
+    )
+    assert cli.main(["run", "mail-digest", "--project", "foo"]) == 2
+    assert called["n"] == 0
+
+
+def test_logs_shows_command_output(tmp_xdg, capsys):
+    from ptt import config
+
+    rd = config.state_home() / "runs" / "mail-digest" / "20260716T070000Z"
+    rd.mkdir(parents=True)
+    (rd / "run.json").write_text(
+        json.dumps({"routine": "mail-digest", "status": "success"})
+    )
+    (rd / "command.txt").write_text("mail_digest.py --day yesterday\n")
+    (rd / "command.stdout.log").write_text("THE DIGEST BODY\n")
+    (rd / "command.stderr.log").write_text("")
+    assert cli.main(["logs", "mail-digest"]) == 0
+    out = capsys.readouterr().out
+    assert "THE DIGEST BODY" in out
+    assert "command.txt" in out
 
 
 def test_run_command_end_to_end(
@@ -99,6 +165,33 @@ def test_doctor_ok(fake_bin, github_repo, tmp_xdg, tmp_path, monkeypatch):
     write_config(tmp_xdg["config"], github_repo, tmp_path)
     monkeypatch.setenv("PTT_SMTP_PASSWORD", "pw")
     assert cli.main(["doctor"]) == 0
+
+
+def test_doctor_command_only_passes_without_git_tools(tmp_xdg, tmp_path, monkeypatch):
+    # A command-only install needs no claude/git/gh; doctor must not hard-fail on them.
+    write_command_config(
+        tmp_xdg["config"], tmp_path, [sys.executable, "-c", "print('x')"]
+    )
+    monkeypatch.setenv("PTT_SMTP_PASSWORD", "pw")
+    monkeypatch.setenv("PATH", "")  # nothing resolvable by bare name
+    assert cli.main(["doctor"]) == 0
+
+
+def test_doctor_flags_missing_command_exe(tmp_xdg, tmp_path, monkeypatch):
+    write_command_config(tmp_xdg["config"], tmp_path, ["/nonexistent/mail_digest.py"])
+    monkeypatch.setenv("PTT_SMTP_PASSWORD", "pw")
+    monkeypatch.setenv("PATH", "")
+    assert cli.main(["doctor"]) != 0
+
+
+def test_doctor_project_routine_still_requires_git_tools(
+    github_repo, tmp_xdg, tmp_path, monkeypatch
+):
+    # With a project routine configured, missing claude/git/gh must still fail doctor.
+    write_config(tmp_xdg["config"], github_repo, tmp_path)
+    monkeypatch.setenv("PTT_SMTP_PASSWORD", "pw")
+    monkeypatch.setenv("PATH", "")
+    assert cli.main(["doctor"]) != 0
 
 
 def test_doctor_missing_password_fails(

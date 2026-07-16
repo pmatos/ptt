@@ -5,7 +5,10 @@ NOT use this — its streaming/process-group needs are handled separately."""
 
 from __future__ import annotations
 
+import contextlib
+import os
 import shlex
+import signal
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,3 +63,24 @@ def run(
 
 def _as_text(v) -> str:
     return v.decode() if isinstance(v, (bytes, bytearray)) else str(v)
+
+
+def terminate_group(p: subprocess.Popen) -> None:
+    """Kill the whole process group of `p` (SIGTERM, then SIGKILL after a short
+    grace period). For a process started with `start_new_session=True`, this reaps
+    any children it forked, not just the direct child. A no-op if the group is
+    already gone. Used to enforce a hard timeout on a command routine's process."""
+    try:
+        pgid = os.getpgid(p.pid)
+    except ProcessLookupError:
+        return
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        p.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pgid, signal.SIGKILL)
+        p.wait()

@@ -27,7 +27,17 @@ deletes it when the run finishes. When it runs, for each project ptt:
    PR/issue diff;
 4. deletes the clone; the pushed branch stays on the remote.
 
-Then it emails one summary per run over SMTP (any provider) and writes full logs to disk.
+Then it emails one summary per run over SMTP (any email service) and writes full logs to disk.
+
+### Command routines
+
+A routine can instead name a **command** rather than a prompt + projects. ptt then acts as a
+pure scheduler: it runs your local command, captures its output, and emails the **stdout** —
+no clone, no Claude, no `gh`. This suits *gather → summarize → email* jobs (a mail digest, an
+RSS roundup) and keeps private data and any local model on your machine. A routine has
+**either** `projects` **or** `command`, never both. See the
+[tutorial](docs/tutorial.md#command-routines-gather--summarize--email-no-git-project) and
+[ADR 0003](docs/adr/0003-command-routines.md).
 
 > **New here?** Follow the step-by-step **[tutorial](docs/tutorial.md)** to go from zero
 > to a scheduled routine. The sections below are the quick reference.
@@ -112,6 +122,21 @@ both cases ptt clones the github.com remote into
 `work_dir`, runs against that clone, and deletes it when the run ends — a local checkout is
 only read (for its `origin`), never run in or modified. Private remotes need credentials
 `git`/`gh` can already use.
+
+A **command routine** replaces `prompt` + `projects` with a `command`; ptt runs it and
+emails its stdout (no clone, no Claude, no `gh`). `~/.config/ptt/routines/mail-digest.toml`:
+
+```toml
+name = "mail-digest"
+schedule = "*-*-* 07:00:00"
+command = ["~/.local/bin/mail_digest.py", "--day", "yesterday"]  # argv, no shell; ~-expanded
+body_format = "markdown"     # "text" (default) | "markdown"  (renders the stdout for HTML)
+# notify = false             # the command sends its own mail; ptt just schedules + logs it
+```
+
+`command` and `projects` are mutually exclusive. `[email].on` maps to `always` (every run) /
+`changes` (any stdout) / `failures` (non-zero exit). See the
+[tutorial](docs/tutorial.md#command-routines-gather--summarize--email-no-git-project).
 
 Secrets — `~/.config/ptt/env` (chmod 600), loaded by the systemd timer:
 

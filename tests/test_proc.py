@@ -1,3 +1,4 @@
+import subprocess
 import sys
 
 from ptt import proc
@@ -39,3 +40,10 @@ def test_run_passes_stdin():
         input="echoed",
     )
     assert r.stdout == "echoed"
+
+
+def test_terminate_group_noop_when_already_exited():
+    p = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    p.wait()
+    # The whole group is already gone; terminate_group must swallow the lookup miss.
+    proc.terminate_group(p)

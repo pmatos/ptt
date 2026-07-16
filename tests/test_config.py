@@ -162,6 +162,7 @@ def test_load_routine_merges_defaults_and_expands_paths(tmp_xdg, tmp_path, monke
     _write_routine(tmp_xdg["config"], "code-audit", _good_routine(prompt))
     cfg = config.load_global_config()
     r = config.load_routine("code-audit", cfg)
+    assert isinstance(r, m.Routine)
     assert r.name == "code-audit"
     assert r.prompt == prompt
     assert r.projects[0].is_remote is False
@@ -212,6 +213,7 @@ def test_load_routine_retry_override_and_fallback(tmp_xdg, tmp_path):
     )
     cfg = config.load_global_config()
     r = config.load_routine("code-audit", cfg)
+    assert isinstance(r, m.Routine)
     assert r.api_max_retries == 9  # from the routine
     assert r.api_retry_base_seconds == 7.0  # inherited from [defaults]
     assert r.api_retry_cap_seconds == m.DEFAULT_RETRY_CAP_S  # global default
@@ -240,6 +242,7 @@ def test_load_routine_parses_effort(tmp_xdg, tmp_path):
     )
     cfg = config.load_global_config()
     r = config.load_routine("code-audit", cfg)
+    assert isinstance(r, m.Routine)
     assert r.effort == m.Effort.HIGH
 
 
@@ -267,6 +270,7 @@ def test_load_routine_parses_remote_project(tmp_xdg, tmp_path):
     _write_routine(tmp_xdg["config"], "code-audit", body)
     cfg = config.load_global_config()
     r = config.load_routine("code-audit", cfg)
+    assert isinstance(r, m.Routine)
     assert r.projects[0].is_remote is True
     assert r.projects[0].location == "https://github.com/pmatos/ptt.git"
     assert r.projects[0].name == "ptt"
@@ -330,6 +334,107 @@ def test_load_routine_bad_permission_mode_raises(tmp_xdg, tmp_path):
     cfg = config.load_global_config()
     with pytest.raises(config.ConfigError):
         config.load_routine("code-audit", cfg)
+
+
+def _good_command_routine():
+    return """
+name = "mail-digest"
+description = "yesterday's email"
+enabled = true
+schedule = "*-*-* 07:00:00"
+command = ["~/bin/mail_digest.py", "--day", "yesterday"]
+"""
+
+
+def test_load_command_routine_parses_and_defaults(tmp_xdg, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL)
+    _write_routine(tmp_xdg["config"], "mail-digest", _good_command_routine())
+    cfg = config.load_global_config()
+    r = config.load_routine("mail-digest", cfg)
+    assert isinstance(r, m.CommandRoutine)
+    assert r.name == "mail-digest"
+    assert r.command == [str(tmp_path / "bin" / "mail_digest.py"), "--day", "yesterday"]
+    assert r.body_format == m.BodyFormat.TEXT  # default
+    assert r.notify is True  # default
+    assert r.schedule == "*-*-* 07:00:00"
+    assert r.timeout_minutes == 20  # from [defaults]
+    assert r.work_dir == cfg.defaults.work_dir
+
+
+def test_load_command_routine_body_format_and_notify(tmp_xdg, tmp_path):
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL)
+    body = _good_command_routine() + 'body_format = "markdown"\nnotify = false\n'
+    _write_routine(tmp_xdg["config"], "mail-digest", body)
+    cfg = config.load_global_config()
+    r = config.load_routine("mail-digest", cfg)
+    assert isinstance(r, m.CommandRoutine)
+    assert r.body_format == m.BodyFormat.MARKDOWN
+    assert r.notify is False
+
+
+def test_command_and_projects_mutually_exclusive(tmp_xdg, tmp_path):
+    prompt = tmp_path / "p.md"
+    prompt.write_text("x")
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL)
+    body = _good_command_routine() + f'prompt = "{prompt}"\nprojects = ["gh:a/b"]\n'
+    _write_routine(tmp_xdg["config"], "mail-digest", body)
+    cfg = config.load_global_config()
+    with pytest.raises(config.ConfigError):
+        config.load_routine("mail-digest", cfg)
+
+
+def test_load_command_routine_empty_command_raises(tmp_xdg):
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL)
+    body = _good_command_routine().replace(
+        'command = ["~/bin/mail_digest.py", "--day", "yesterday"]', "command = []"
+    )
+    _write_routine(tmp_xdg["config"], "mail-digest", body)
+    cfg = config.load_global_config()
+    with pytest.raises(config.ConfigError):
+        config.load_routine("mail-digest", cfg)
+
+
+def test_load_command_routine_non_list_command_raises(tmp_xdg):
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL)
+    body = _good_command_routine().replace(
+        'command = ["~/bin/mail_digest.py", "--day", "yesterday"]',
+        'command = "mail_digest.py"',
+    )
+    _write_routine(tmp_xdg["config"], "mail-digest", body)
+    cfg = config.load_global_config()
+    with pytest.raises(config.ConfigError):
+        config.load_routine("mail-digest", cfg)
+
+
+def test_load_command_routine_non_string_element_raises(tmp_xdg):
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL)
+    body = _good_command_routine().replace(
+        'command = ["~/bin/mail_digest.py", "--day", "yesterday"]',
+        'command = ["mail_digest.py", 5]',
+    )
+    _write_routine(tmp_xdg["config"], "mail-digest", body)
+    cfg = config.load_global_config()
+    with pytest.raises(config.ConfigError):
+        config.load_routine("mail-digest", cfg)
+
+
+def test_load_command_routine_bad_body_format_raises(tmp_xdg):
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL)
+    body = _good_command_routine() + 'body_format = "rst"\n'
+    _write_routine(tmp_xdg["config"], "mail-digest", body)
+    cfg = config.load_global_config()
+    with pytest.raises(config.ConfigError):
+        config.load_routine("mail-digest", cfg)
+
+
+def test_load_command_routine_missing_schedule_raises(tmp_xdg):
+    _write_global(tmp_xdg["config"], GOOD_GLOBAL)
+    body = _good_command_routine().replace('schedule = "*-*-* 07:00:00"\n', "")
+    _write_routine(tmp_xdg["config"], "mail-digest", body)
+    cfg = config.load_global_config()
+    with pytest.raises(config.ConfigError):
+        config.load_routine("mail-digest", cfg)
 
 
 def test_list_routine_names_sorted(tmp_xdg, tmp_path):
