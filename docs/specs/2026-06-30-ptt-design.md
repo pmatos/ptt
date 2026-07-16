@@ -222,7 +222,7 @@ unset.
 `claude.py` builds, roughly:
 
 ```
-claude -p \
+CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 claude -p \
   --output-format stream-json --verbose \
   --permission-mode <mode | dangerously-skip-permissions> \
   [--model <model>] \
@@ -256,7 +256,14 @@ claude -p \
 - **No-background guard:** `--disallowedTools ScheduleWakeup Monitor CronCreate` removes the
   schedule-and-wait tools, so Claude cannot background long-running work and end its turn
   expecting a re-invocation that never comes in one-shot mode. (Subagents via `Agent` stay
-  enabled — they run to completion within the turn.)
+  enabled — they run to completion within the turn.) Those tools don't cover a background
+  **Bash** (`run_in_background`), which `claude -p` terminates seconds after the turn ends
+  rather than waiting for; a long verification suite backgrounded that way is silently lost.
+  So ptt also sets `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` in Claude's environment: the CLI
+  then ignores `run_in_background` and every command runs synchronously to completion in-turn
+  (this also disables auto-backgrounding of subagents, which is what we want). The footer
+  reinforces this and instructs Claude to run a bounded, representative subset when a suite is
+  too large to finish synchronously, instead of deferring the full sweep.
 - **Permission mode:** for unattended runs the effective flag is
   `--dangerously-skip-permissions` (chosen when `permission_mode = "bypass"`), because
   headless `-p` mode has no one to approve tool prompts. `acceptEdits` is offered for

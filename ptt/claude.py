@@ -2,12 +2,16 @@
 (routine prompt + a fixed result-reporting footer) and the argv, and runs it in
 its own process group so a timeout can kill the whole tree.
 
-Two harness-level guards make the one-shot contract robust: `--json-schema` forces
+Three harness-level guards make the one-shot contract robust: `--json-schema` forces
 Claude's final message to be a schema-valid result object (surfaced in the
 stream-json `result` event's `structured_output`, so ptt no longer depends on the
-model remembering to write a file), and `--disallowedTools` removes the
-schedule-and-wait tools that tempt the model to background work and end its turn
-expecting a re-invocation that never comes.
+model remembering to write a file); `--disallowedTools` removes the schedule-and-wait
+tools that tempt the model to background work and end its turn expecting a
+re-invocation that never comes; and `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` in the
+environment closes the gap those tools leave open — a background *Bash*
+(`run_in_background`), which `claude -p` kills a few seconds after the turn ends
+rather than waiting for. With it set the CLI ignores `run_in_background`, so every
+shell command runs synchronously to completion in-turn and its result can't be lost.
 
 Separately, `claude` retries transient API failures internally, but during a
 sustained overload window it exhausts those retries and exits non-zero with an
@@ -59,6 +63,14 @@ RESULT_SCHEMA: dict = {
 # left enabled: they run to completion within the turn.)
 DISALLOWED_TOOLS = ["ScheduleWakeup", "Monitor", "CronCreate"]
 
+# The remaining background path `--disallowedTools` can't reach: a Bash launched with
+# `run_in_background`. There is no tool to deny for it (it's a parameter of Bash, and
+# denying Bash would disable it entirely), and `claude -p` does not wait for a
+# background shell — it terminates it seconds after the final result. Setting this env
+# var makes the CLI ignore `run_in_background` so every command runs synchronously
+# in-turn; it also disables auto-backgrounding of subagents, which we want too.
+BACKGROUND_TASKS_ENV = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
+
 # HTTP statuses worth re-invoking `claude` for: overload/rate-limit/5xx, i.e.
 # transient server-side conditions that a later attempt may clear. A 4xx like
 # 400/401/403/404 is a config/auth problem that won't fix itself, so it is
@@ -74,10 +86,14 @@ work warrants it, create a branch, commit, push, and open a pull request (or ope
 This is a single, one-shot run and you will NOT be re-invoked. Run every
 verification step (tests, builds, suites) synchronously to completion and read
 its result before continuing — never launch long-running work in the background
-and end your turn waiting to be resumed, because anything still running is killed
-and its result is lost when your turn ends. Push the branch and open the PR
-within this turn; an unpushed commit is discarded when the throwaway clone is
-removed.
+(no `run_in_background` Bash, no schedule-and-wait tools) and end your turn
+waiting to be resumed, because anything still running is killed and its result is
+lost when your turn ends. (Background execution is disabled for this run, so a
+`run_in_background` Bash will simply block until it finishes anyway.) If a
+verification suite is too large to finish synchronously within this run, run a
+bounded, representative subset instead and say so in your summary — never defer
+the full suite to the background. Push the branch and open the PR within this
+turn; an unpushed commit is discarded when the throwaway clone is removed.
 
 When you end, report the outcome as the structured result ptt requires — even if
 you failed or ran out of time (use status "error" with a summary of how far you
@@ -128,6 +144,13 @@ def build_argv(
     # Variadic flag: keep it last so it consumes only the tool names that follow.
     argv += ["--disallowedTools", *DISALLOWED_TOOLS]
     return argv
+
+
+def build_env() -> dict[str, str]:
+    """The child environment for `claude`: the current environment plus the
+    no-background guard. Read `os.environ` here at call time (not at import) so the
+    subprocess still inherits PATH and friends as they are when the run starts."""
+    return {**os.environ, BACKGROUND_TASKS_ENV: "1"}
 
 
 def run_claude(
@@ -228,6 +251,7 @@ def _run_once(
             stderr=err,
             text=True,
             start_new_session=True,
+            env=build_env(),
         )
         try:
             p.communicate(input=stdin_text, timeout=timeout_s)

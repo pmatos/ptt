@@ -46,6 +46,12 @@ if "--resume" in argv:
 with (cwd / ".fake-invocations").open("a") as fh:
     fh.write((f"resume:{resume_id}" if resume_id else "fresh") + "\n")
 
+# Record the no-background guard env var as ptt passed it, so a test can assert the
+# subprocess actually inherits CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1.
+(cwd / ".fake-env-bgtasks").write_text(
+    os.environ.get("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "")
+)
+
 # api_error_no_session simulates claude dying before a session exists, so no
 # session_id is ever emitted and ptt's retry cannot resume. api_error_session_then_none
 # emits one only on the FIRST attempt, so a later *resumed* attempt lacks a fresh id —

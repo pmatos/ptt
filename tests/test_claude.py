@@ -59,6 +59,37 @@ def test_build_prompt_warns_against_background_deferral():
     assert "synchronously" in out
 
 
+def test_build_prompt_names_background_bash_and_subset_fallback():
+    out = claude.build_prompt("Do the audit.").lower()
+    # Beyond the schedule-and-wait tools, the footer must name the background Bash
+    # path explicitly (that is what backgrounded test262 in #30) and give a concrete
+    # fallback for a suite too big to finish synchronously: run a bounded subset.
+    assert "run_in_background" in out
+    assert "subset" in out
+
+
+def test_build_env_disables_background_tasks_and_keeps_environ(monkeypatch):
+    # The hard guard that closes the background-Bash gap: with this set the CLI
+    # ignores run_in_background so every Bash blocks to completion in-turn.
+    monkeypatch.setenv("PATH", "/sentinel/bin")
+    env = claude.build_env()
+    assert env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] == "1"
+    # It augments the real environment rather than replacing it, so the subprocess
+    # still finds claude/git/gh on PATH.
+    assert env["PATH"] == "/sentinel/bin"
+
+
+def test_run_claude_passes_no_background_env_to_subprocess(
+    fake_bin, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PTT_FAKE_MODE", "pr")
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    out, err = tmp_path / "o.jsonl", tmp_path / "e.log"
+    claude.run_claude(_routine(), wt, "prompt", out, err, timeout_s=10)
+    assert (wt / ".fake-env-bgtasks").read_text() == "1"
+
+
 def test_build_argv_bypass_uses_dangerous_flag():
     argv = claude.build_argv(_routine(m.PermissionMode.BYPASS))
     assert argv[0] == "claude"
