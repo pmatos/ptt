@@ -56,8 +56,10 @@ def run_command_routine(
     logstore.snapshot_command(run_dir, routine.command)
     t0 = time.monotonic()
     cwd = routine.work_dir / run_id
-    cwd.mkdir(parents=True, exist_ok=True)
     try:
+        # Inside the try so a bad work_dir (unwritable / a non-directory parent) is
+        # reported as a clean ERROR with run.json + email, like any launch failure.
+        cwd.mkdir(parents=True, exist_ok=True)
         rc, timed_out = command.run_command(
             routine.command,
             cwd,

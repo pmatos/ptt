@@ -141,6 +141,21 @@ def test_scratch_dir_removed_even_when_command_writes_to_it(
     assert not (r.work_dir / run.run_id).exists()
 
 
+def test_uncreatable_work_dir_is_clean_error(tmp_xdg, tmp_path, monkeypatch):
+    # A work_dir whose scratch dir can't be created (a parent path component is a
+    # file) must become a clean ERROR with run.json — not a raw traceback.
+    monkeypatch.setattr(notify, "send", lambda *a, **k: None)
+    blocker = tmp_path / "blocker"
+    blocker.write_text("i am a file, not a directory")
+    r = make_cmd_routine(tmp_path, [sys.executable, "-c", "print('x')"])
+    # a file component blocks mkdir(parents=True) of the scratch dir
+    r.work_dir = blocker / "work"
+    run = runner.run_command_routine(r, make_global())
+    assert run.status == m.Status.ERROR
+    assert runner.command_exit_code(run) == 1
+    assert (Path(run.run_dir) / "run.json").is_file()
+
+
 def test_non_utf8_stdout_does_not_crash(tmp_xdg, tmp_path, monkeypatch):
     # Non-UTF-8 bytes on stdout must not fail an otherwise successful run.
     monkeypatch.setattr(notify, "send", lambda *a, **k: None)
