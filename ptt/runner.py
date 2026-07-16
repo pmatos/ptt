@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import shutil
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -76,8 +77,9 @@ def run_command_routine(
         else:
             status, reason = m.Status.SUCCESS, None
     finally:
-        with contextlib.suppress(OSError):
-            cwd.rmdir()
+        # Recursive best-effort: the command may have written files into its cwd, so
+        # a plain rmdir would leave the scratch dir (and private artifacts) behind.
+        shutil.rmtree(cwd, ignore_errors=True)
 
     run = m.CommandRunResult(
         routine=routine.name,
