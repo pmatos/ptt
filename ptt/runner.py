@@ -133,7 +133,7 @@ def _run_one_project(routine, spec, run_id, pdir, prompt_text, name):
             name,
             path_display,
             pdir,
-            "not a GitHub repo (origin missing or non-github)",
+            _not_github_reason(spec),
             branch,
             _dur(t0),
         )
@@ -156,6 +156,21 @@ def _run_one_project(routine, spec, run_id, pdir, prompt_text, name):
         )
     finally:
         git_ops.remove_clone(dest, log)
+
+
+def _not_github_reason(spec: m.ProjectSpec) -> str:
+    """Explain a failed github.com origin resolution. A bare `owner/repo` is parsed
+    as a local path (since #9), so when that shape fails to resolve the user most
+    likely meant the GitHub remote — point them at the `gh:` shorthand instead of a
+    bare message they'd otherwise misread as "the repo isn't on GitHub"."""
+    if not spec.is_remote and projects.looks_like_gh_slug(spec.raw):
+        slug = spec.raw.strip()
+        gh = f"gh:{slug}"
+        return (
+            f"not a GitHub repo: {slug!r} is read as a local path — "
+            f"write it as {gh!r} to clone the GitHub repo"
+        )
+    return "not a GitHub repo (origin missing or non-github)"
 
 
 def _run_claude_and_reconcile(

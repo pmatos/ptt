@@ -242,6 +242,32 @@ def test_run_error_sets_overall_error_and_cleans(
     assert not dest.exists()  # B2: cleaned even on failure
 
 
+def test_bare_slug_local_error_points_at_gh_fix(fake_bin, tmp_path, monkeypatch):
+    # A bare `owner/repo` is parsed as a (here nonexistent) local path since #9; the
+    # resulting origin-resolution failure must point the user at the `gh:` remote
+    # shorthand rather than the bare "origin missing or non-github" message.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PTT_FAKE_MODE", "pr")
+    spec = proj.parse("fake/repo")
+    assert spec.is_remote is False
+    run = runner.run_routine(make_routine(tmp_path, [spec]), make_global())
+    p = run.projects[0]
+    assert p.status == m.Status.ERROR
+    assert "gh:fake/repo" in (p.reason or "")
+
+
+def test_non_slug_local_error_keeps_plain_message(fake_bin, tmp_path, monkeypatch):
+    # A genuine local path (not owner/repo shaped) that fails resolution keeps the
+    # plain message — no misleading gh: suggestion.
+    monkeypatch.setenv("PTT_FAKE_MODE", "pr")
+    spec = proj.parse(str(tmp_path / "nope"))
+    run = runner.run_routine(make_routine(tmp_path, [spec]), make_global())
+    p = run.projects[0]
+    assert p.status == m.Status.ERROR
+    assert "not a GitHub repo" in (p.reason or "")
+    assert "gh:" not in (p.reason or "")
+
+
 def test_run_unverified(fake_bin, github_repo, tmp_path, monkeypatch):
     monkeypatch.setenv("PTT_FAKE_MODE", "unverified")
     run = runner.run_routine(make_routine(tmp_path, [github_repo]), make_global())

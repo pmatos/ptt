@@ -116,6 +116,26 @@ def test_url_with_degenerate_last_segment_falls_back_to_token():
         assert s.name == "project"
 
 
+def test_looks_like_gh_slug_recognises_bare_owner_repo():
+    # The shape a user most likely meant as `gh:owner/repo` but wrote without gh:.
+    assert projects.looks_like_gh_slug("pmatos/music-timeline") is True
+    assert projects.looks_like_gh_slug("vow-lang/vow") is True
+    assert projects.looks_like_gh_slug("  pmatos/s11  ") is True  # tolerates padding
+
+
+def test_looks_like_gh_slug_rejects_paths_urls_and_prefixed():
+    for s in (
+        "~/dev/a",  # home path
+        "./dev/a",  # relative path
+        "/abs/b",  # absolute path
+        "dev/a/b",  # multi-segment path (two slashes)
+        "gh:pmatos/ptt",  # already opted in
+        "https://github.com/o/r",  # full URL
+        "single",  # no slash
+    ):
+        assert projects.looks_like_gh_slug(s) is False
+
+
 def test_slug_from_url_handles_all_remote_forms():
     assert projects.slug_from_url("https://github.com/acme/app.git") == "acme/app"
     assert projects.slug_from_url("https://github.com/acme/app") == "acme/app"

@@ -19,6 +19,10 @@ from ptt import models as m
 # Explicit opt-in marker for the GitHub `owner/repo` remote shorthand.
 _GH_PREFIX = "gh:"
 _URL_RE = re.compile(r"^(https?://|ssh://|git@)")
+# The pre-#9 bare `owner/repo` shape (exactly one slash, no scheme/leading ~./).
+# Kept only to *recognise* an entry a user likely meant as `gh:owner/repo`, so a
+# failed local-path lookup can be pointed at the gh: fix — parsing never uses it.
+_SLUG_RE = re.compile(r"^[A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*$")
 
 
 def parse(raw: str) -> m.ProjectSpec:
@@ -44,6 +48,14 @@ def parse(raw: str) -> m.ProjectSpec:
     return m.ProjectSpec(
         raw=raw, is_remote=False, location=str(path), name=_safe_name(path.name, path)
     )
+
+
+def looks_like_gh_slug(raw: str) -> bool:
+    """True if `raw` has the bare `owner/repo` shape that ptt treats as a local
+    path (since #9) but a user most likely meant as `gh:owner/repo`. Used only to
+    enrich the runner's "not a GitHub repo" error with the gh: fix — `parse` is
+    unaffected and still classifies a bare slug as a local path."""
+    return bool(_SLUG_RE.match(raw.strip()))
 
 
 def _name_from_url(url: str) -> str:
