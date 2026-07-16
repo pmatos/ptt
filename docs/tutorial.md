@@ -399,7 +399,7 @@ unattended).
 | `ptt run` stops at `Username for 'https://github.com'` | A private repo is cloned over HTTPS with no git credentials. Run `gh auth setup-git` so git reuses your gh token. |
 | `✗ smtp password`                    | Set `PTT_SMTP_PASSWORD` (env + `~/.config/ptt/env`).                  |
 | `[email] refuses to send credentials…` | `smtp_security = "none"` with a username only works on a loopback host; use `starttls`/`ssl` for a remote host. |
-| Project shows `not a GitHub repo`    | Its `origin` remote must point at github.com.                         |
+| Project shows `not a GitHub repo`    | Its `origin` remote must point at github.com. If the entry is a bare `owner/repo`, ptt reads it as a *local path* — write it as `gh:owner/repo` to clone the GitHub repo (the error names the exact fix). |
 | No email arrived                     | Check `on` policy; look for a `.email-failed` marker in the run dir.  |
 | All projects `failed (Could not resolve host)` on a resume-triggered run | Network wasn't up yet when the timer fired; the `wait-online` gate covers this — if it predates this fix, re-run `ptt install <routine>`. |
 | Action shown as `(unverified)`       | Claude claimed a PR/issue `gh` couldn't confirm — check `git.log`.    |
