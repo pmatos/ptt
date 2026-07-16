@@ -55,7 +55,10 @@ def run_command_routine(
     run_id, run_dir = logstore.make_run_dir(routine.name, logstore.new_run_id())
     logstore.snapshot_command(run_dir, routine.command)
     t0 = time.monotonic()
-    cwd = routine.work_dir / run_id
+    # Namespace the scratch dir by routine name too: run_id is only deduped within
+    # a routine, so two routines sharing work_dir could otherwise collide (and
+    # rmtree each other) when triggered in the same second.
+    cwd = routine.work_dir / routine.name / run_id
     try:
         # Inside the try so a bad work_dir (unwritable / a non-directory parent) is
         # reported as a clean ERROR with run.json + email, like any launch failure.

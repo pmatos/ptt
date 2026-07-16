@@ -156,6 +156,27 @@ def test_uncreatable_work_dir_is_clean_error(tmp_xdg, tmp_path, monkeypatch):
     assert (Path(run.run_dir) / "run.json").is_file()
 
 
+def test_scratch_dir_is_isolated_by_routine_name(tmp_xdg, tmp_path, monkeypatch):
+    # Two command routines sharing work_dir and triggered the same second get the
+    # same run_id (dedup is per-routine), so the scratch path must also include the
+    # routine name — otherwise they run in and rmtree the same directory.
+    monkeypatch.setattr(notify, "send", lambda *a, **k: None)
+    monkeypatch.setattr(logstore, "new_run_id", lambda: "20260716T130000Z")
+    seen = {}
+
+    def fake_run(argv, cwd, out, err, timeout_s, env=None):
+        seen["cwd"] = Path(cwd)
+        Path(out).write_text("")
+        return 0, False
+
+    monkeypatch.setattr(command, "run_command", fake_run)
+    shared = tmp_path / "shared-work"
+    r = make_cmd_routine(tmp_path, [sys.executable, "-c", "pass"], name="alpha")
+    r.work_dir = shared
+    runner.run_command_routine(r, make_global())
+    assert seen["cwd"] == shared / "alpha" / "20260716T130000Z"
+
+
 def test_non_utf8_stdout_does_not_crash(tmp_xdg, tmp_path, monkeypatch):
     # Non-UTF-8 bytes on stdout must not fail an otherwise successful run.
     monkeypatch.setattr(notify, "send", lambda *a, **k: None)
