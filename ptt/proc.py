@@ -66,21 +66,22 @@ def _as_text(v) -> str:
 
 
 def terminate_group(p: subprocess.Popen) -> None:
-    """Kill the whole process group of `p` (SIGTERM, then SIGKILL after a short
-    grace period). For a process started with `start_new_session=True`, this reaps
-    any children it forked, not just the direct child. A no-op if the group is
-    already gone. Used to enforce a hard timeout on a command routine's process."""
+    """Kill the whole process group of `p`: SIGTERM, a short grace period, then
+    SIGKILL whatever is left. For a process started with `start_new_session=True`
+    this reaps any children it forked, not just the direct child. A no-op if the
+    group is already gone. Used to enforce a hard timeout on a command routine.
+
+    The SIGKILL is unconditional (keyed on the *group*, not the parent): a child
+    that ignores SIGTERM can outlive a parent that exits on it, so escalating only
+    when the parent is still alive would leak that child."""
     try:
         pgid = os.getpgid(p.pid)
     except ProcessLookupError:
         return
-    try:
+    with contextlib.suppress(ProcessLookupError):
         os.killpg(pgid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    try:
-        p.wait(timeout=2)
-    except subprocess.TimeoutExpired:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(pgid, signal.SIGKILL)
-        p.wait()
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        p.wait(timeout=2)  # grace period for the group to exit on SIGTERM
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(pgid, signal.SIGKILL)
+    p.wait()
