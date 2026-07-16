@@ -20,9 +20,11 @@ deletes it when the run finishes. When it runs, for each project ptt:
 2. runs `claude -p` headless in that clone, with a footer instructing Claude to do
    the task synchronously (it is a one-shot run — no re-invocation, so nothing may
    be deferred to a background task) and open a PR/issue with `gh` when warranted.
-   Two harness guards make this stick: `--json-schema` forces Claude's final message
-   to be a fixed result object, and `--disallowedTools` removes the schedule-and-wait
-   tools so it can't background work and stall;
+   Three harness guards make this stick: `--json-schema` forces Claude's final message
+   to be a fixed result object, `--disallowedTools` removes the schedule-and-wait
+   tools, and `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` makes the CLI ignore
+   `run_in_background` so even a backgrounded Bash runs synchronously — together they
+   stop it backgrounding work and stalling;
 3. detects the outcome from that structured result, **cross-checked** against a `gh`
    PR/issue diff;
 4. deletes the clone; the pushed branch stays on the remote.
