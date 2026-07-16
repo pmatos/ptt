@@ -96,12 +96,14 @@ def _cmd_logs(args) -> int:
     if run_json.is_file():
         print(run_json.read_text())
     # A command run has no projects/ subtree; its output lives beside run.json.
+    # Command stdout/stderr are arbitrary bytes, so decode leniently (matching the
+    # runner) — a non-UTF-8 log must never make `ptt logs` crash.
     if (rd / "command.stdout.log").is_file():
         for fn in ("command.txt", "command.stdout.log", "command.stderr.log"):
             f = rd / fn
             if f.is_file():
                 print(f"\n--- {fn} ---")
-                print(f.read_text())
+                print(f.read_text(errors="replace"))
     elif args.project:
         pdir = rd / "projects" / args.project
         for fn in ("git.log", "claude.stderr.log", "claude.stdout.jsonl"):

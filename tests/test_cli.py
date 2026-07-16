@@ -85,6 +85,22 @@ def test_logs_shows_command_output(tmp_xdg, capsys):
     assert "command.txt" in out
 
 
+def test_logs_command_output_tolerates_non_utf8(tmp_xdg, capsys):
+    from ptt import config
+
+    rd = config.state_home() / "runs" / "mail-digest" / "20260716T110000Z"
+    rd.mkdir(parents=True)
+    (rd / "run.json").write_text(
+        json.dumps({"routine": "mail-digest", "status": "success"})
+    )
+    (rd / "command.txt").write_text("mail_digest.py\n")
+    (rd / "command.stdout.log").write_bytes(b"\xff\xfe digest body\n")
+    (rd / "command.stderr.log").write_bytes(b"")
+    # non-UTF-8 bytes must not crash `ptt logs` with a UnicodeDecodeError
+    assert cli.main(["logs", "mail-digest"]) == 0
+    assert "digest body" in capsys.readouterr().out
+
+
 def test_run_command_end_to_end(
     fake_bin, github_repo, tmp_xdg, tmp_path, monkeypatch, capsys
 ):
