@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -89,4 +90,25 @@ def write_result_json(pdir: Path, result: m.ProjectResult) -> None:
 
 
 def write_run_json(run_dir: Path, run: m.RunResult) -> None:
+    (run_dir / "run.json").write_text(json.dumps(run.to_dict(), indent=2))
+
+
+# --- command routines: the run dir *is* the log dir (no projects/ subtree) ---
+
+
+def command_stdout_path(run_dir: Path) -> Path:
+    return run_dir / "command.stdout.log"
+
+
+def command_stderr_path(run_dir: Path) -> Path:
+    return run_dir / "command.stderr.log"
+
+
+def snapshot_command(run_dir: Path, argv: list[str]) -> Path:
+    dest = run_dir / "command.txt"
+    dest.write_text(shlex.join(argv) + "\n")
+    return dest
+
+
+def write_command_run_json(run_dir: Path, run: m.CommandRunResult) -> None:
     (run_dir / "run.json").write_text(json.dumps(run.to_dict(), indent=2))

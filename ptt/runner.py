@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import contextlib
 import os
+import shutil
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ptt import claude, git_ops, logstore, notify, outcomes, projects
+from ptt import claude, command, git_ops, logstore, notify, outcomes, projects
 from ptt import models as m
 
 
@@ -23,6 +24,93 @@ def _now_iso() -> str:
 
 def exit_code(run: m.RunResult) -> int:
     return 1 if run.overall_status == m.Status.ERROR else 0
+
+
+def command_exit_code(run: m.CommandRunResult) -> int:
+    return 1 if run.status == m.Status.ERROR else 0
+
+
+def run_command_routine(
+    routine: m.CommandRoutine, global_cfg: m.GlobalConfig, *, force: bool = False
+) -> m.CommandRunResult:
+    """Run a projectless command routine: execute its command in a throwaway cwd,
+    capture stdout/stderr, and email the stdout per policy. No clone, no Claude, no
+    gh. One run = one command (no fan-out)."""
+    started = _now_iso()
+    if not routine.enabled and not force:
+        return m.CommandRunResult(
+            routine.name,
+            "",
+            started,
+            _now_iso(),
+            m.Status.SUCCESS,
+            0,
+            0,
+            None,
+            list(routine.command),
+            0.0,
+            "",
+        )
+
+    run_id, run_dir = logstore.make_run_dir(routine.name, logstore.new_run_id())
+    logstore.snapshot_command(run_dir, routine.command)
+    t0 = time.monotonic()
+    # Namespace the scratch dir by routine name too: run_id is only deduped within
+    # a routine, so two routines sharing work_dir could otherwise collide (and
+    # rmtree each other) when triggered in the same second.
+    cwd = routine.work_dir / routine.name / run_id
+    try:
+        # Inside the try so a bad work_dir (unwritable / a non-directory parent) is
+        # reported as a clean ERROR with run.json + email, like any launch failure.
+        cwd.mkdir(parents=True, exist_ok=True)
+        rc, timed_out = command.run_command(
+            routine.command,
+            cwd,
+            logstore.command_stdout_path(run_dir),
+            logstore.command_stderr_path(run_dir),
+            routine.timeout_minutes * 60,
+        )
+        body = _read_text(logstore.command_stdout_path(run_dir))
+    except Exception as e:  # a command that can't even launch is still a clean ERROR
+        rc, timed_out, body = 127, False, ""
+        status, reason = m.Status.ERROR, f"could not run command: {e}"
+    else:
+        if timed_out:
+            status, reason = m.Status.ERROR, "timeout"
+        elif rc != 0:
+            status, reason = m.Status.ERROR, f"exit {rc}"
+        else:
+            status, reason = m.Status.SUCCESS, None
+    finally:
+        # Recursive best-effort: the command may have written files into its cwd, so
+        # a plain rmdir would leave the scratch dir (and private artifacts) behind.
+        shutil.rmtree(cwd, ignore_errors=True)
+
+    run = m.CommandRunResult(
+        routine=routine.name,
+        run_id=run_id,
+        started_at=started,
+        ended_at=_now_iso(),
+        status=status,
+        exit_code=rc,
+        stdout_len=len(body),
+        reason=reason,
+        command=list(routine.command),
+        duration_s=_dur(t0),
+        run_dir=str(run_dir),
+    )
+    logstore.write_command_run_json(run_dir, run)
+    password = os.environ.get(global_cfg.email.smtp_password_env)
+    notify.notify_command(
+        run,
+        routine.notify,
+        routine.body_format,
+        global_cfg.email,
+        password,
+        run_dir,
+        body,
+    )
+    return run
 
 
 def run_routine(
@@ -264,5 +352,14 @@ def _dur(t0: float) -> float:
 def _tail(path: Path, n: int = 20) -> str:
     try:
         return "\n".join(path.read_text().splitlines()[-n:])
+    except OSError:
+        return ""
+
+
+def _read_text(path: Path) -> str:
+    # errors="replace": command stdout is arbitrary bytes; odd encoding must not fail
+    # an otherwise-successful run.
+    try:
+        return path.read_text(errors="replace")
     except OSError:
         return ""

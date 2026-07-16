@@ -384,6 +384,66 @@ systemctl --user list-timers | grep ptt   # the raw systemd view
   GitHub work and skips the `gh` preflight — and `--force` runs it anyway.
 - **Stop scheduling** — `ptt uninstall code-audit` removes the timer.
 
+## Command routines (gather → summarize → email, no git project)
+
+Everything above is a **project routine**: a prompt run through Claude against a repo. ptt
+also supports a second kind — a **command routine** — for scheduled jobs that have no git
+project and whose output *is* the deliverable: a daily mail digest, an RSS roundup, a
+calendar summary. Here ptt is purely the scheduler: it runs a local command you name and
+emails its **stdout**. Claude, `git`, and `gh` are not involved at all — so the command can
+use a local model and keep private data on your machine.
+
+A routine is a command routine when its TOML has a `command` instead of `projects` (the two
+are mutually exclusive). Create `~/.config/ptt/routines/mail-digest.toml`:
+
+```toml
+name = "mail-digest"
+description = "Summarize yesterday's email"
+enabled = true
+schedule = "*-*-* 07:00:00"          # systemd OnCalendar syntax
+
+# argv (no shell); each entry is ~-expanded like prompt/projects are:
+command = ["~/.local/bin/mail_digest.py", "--day", "yesterday"]
+body_format = "markdown"             # the script emits Markdown; render it as HTML
+
+# optional:
+# notify = true                      # false = the command sends its own mail; ptt stays quiet
+# timeout_minutes = 30
+```
+
+When it runs, ptt executes the command in a throwaway working dir, captures its output, and
+emails the stdout using the same `[email]` settings as your project routines. `body_format`
+controls the HTML part: `text` wraps the output in `<pre>`; `markdown` renders a small
+Markdown subset (headings, lists, bold/italic) to HTML — use it when your command emits
+Markdown.
+
+The `[email].on` policy still applies, mapped to a command routine's shape:
+
+| value      | emails when…                       |
+|------------|------------------------------------|
+| `always`   | every run completes                |
+| `changes`  | the command produced any stdout    |
+| `failures` | the command exited non-zero        |
+
+If your command delivers its own output (for example a digest script run with its own
+`--send`), set `notify = false` so ptt runs and logs it but sends no mail of its own.
+
+The command inherits ptt's environment, so the secrets in `~/.config/ptt/env` and the PATH
+baked at install time are available to it — but the command manages its **own** secrets
+(e.g. an IMAP password); ptt only handles the SMTP transport for the digest it sends.
+
+Everything else is the same as a project routine — with two differences:
+
+- **`ptt doctor`** only insists on `claude`/`git`/`gh` when you have a project routine. A
+  command-only install passes without them; instead doctor checks that each command's
+  executable is resolvable.
+- **`ptt logs mail-digest`** shows `command.txt` (the exact argv), `command.stdout.log`
+  (the digest), and `command.stderr.log` — there is no `projects/` subtree, and `--project`
+  does not apply.
+
+`ptt run mail-digest`, `ptt install mail-digest`, `ptt list`, and `ptt uninstall mail-digest`
+all work exactly as before.
+
 ## About permissions
 
 Unattended runs can't answer interactive approval prompts, so the default

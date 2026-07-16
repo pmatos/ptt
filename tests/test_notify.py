@@ -242,3 +242,169 @@ def test_token_never_in_rendered_message():
     run = _run([_proj("a", m.Status.SUCCESS, m.Action.PR)])
     assert "SECRET" not in notify.build_subject(run)
     assert "SECRET" not in notify.build_text(run)
+
+
+# ---------- command routines ----------
+
+
+def _cmd_run(status=m.Status.SUCCESS, exit_code=0, stdout_len=10, reason=None):
+    return m.CommandRunResult(
+        routine="mail-digest",
+        run_id="20260716T070000Z",
+        started_at="s",
+        ended_at="e",
+        status=status,
+        exit_code=exit_code,
+        stdout_len=stdout_len,
+        reason=reason,
+        command=["mail_digest.py"],
+        duration_s=1.0,
+        run_dir="/state/runs/mail-digest/20260716T070000Z",
+    )
+
+
+def test_build_command_subject_ok_and_failed():
+    assert notify.build_command_subject(_cmd_run()) == "[ptt] mail-digest — ok"
+    failed = notify.build_command_subject(
+        _cmd_run(status=m.Status.ERROR, exit_code=3, reason="exit 3")
+    )
+    assert "failed" in failed and "exit 3" in failed
+    timed = notify.build_command_subject(
+        _cmd_run(status=m.Status.ERROR, exit_code=124, reason="timeout")
+    )
+    assert "failed" in timed and "timeout" in timed
+
+
+def test_build_command_body_has_stdout_and_footer():
+    run = _cmd_run()
+    body = notify.build_command_body(run, "# Digest\nthe body")
+    assert "the body" in body
+    assert run.run_id in body and run.run_dir in body
+
+
+def test_should_send_command_matrix():
+    ok = _cmd_run(status=m.Status.SUCCESS, stdout_len=5)
+    empty = _cmd_run(status=m.Status.SUCCESS, stdout_len=0)
+    fail = _cmd_run(status=m.Status.ERROR, exit_code=1, stdout_len=0, reason="exit 1")
+    assert notify.should_send_command(empty, m.EmailOn.ALWAYS) is True
+    assert notify.should_send_command(ok, m.EmailOn.CHANGES) is True
+    assert notify.should_send_command(empty, m.EmailOn.CHANGES) is False
+    assert notify.should_send_command(ok, m.EmailOn.FAILURES) is False
+    assert notify.should_send_command(fail, m.EmailOn.FAILURES) is True
+
+
+def test_md_to_html_covers_all_branches():
+    md = (
+        "# Title\n"
+        "## Section\n"
+        "### Sub\n"
+        "- one\n"
+        "- two\n"
+        "\n"
+        "A **bold** and *italic* line with <script> & ampersand\n"
+    )
+    html = notify.md_to_html(md)
+    assert "<h1>" in html
+    assert "<h2" in html and "<h3" in html
+    assert "<ul>" in html and "</ul>" in html
+    assert html.count("<li>") == 2
+    assert "<strong>bold</strong>" in html
+    assert "<em>italic</em>" in html
+    assert "<p" in html
+    # dangerous markup is escaped, never emitted raw
+    assert "&lt;script&gt;" in html and "&amp;" in html
+    assert "<script>" not in html
+
+
+def test_build_command_html_text_escapes_html():
+    # Text format must not let arbitrary command stdout inject live HTML into the
+    # email's HTML alternative (e.g. a copied <img onerror=...> from a mail digest).
+    out = notify.build_command_html(
+        "<img src=x onerror=alert(1)> & done", m.BodyFormat.TEXT
+    )
+    assert "<img" not in out
+    assert "&lt;img" in out and "&amp;" in out
+
+
+def test_md_to_html_closes_open_list_before_every_block():
+    # An open list is closed exactly once whether the next line is a heading of any
+    # level, a paragraph, or the end of input.
+    assert notify.md_to_html("- a\n### h").count("</ul>") == 1
+    assert notify.md_to_html("- a\n## h").count("</ul>") == 1
+    assert notify.md_to_html("- a\n# h").count("</ul>") == 1
+    assert notify.md_to_html("- a\nplain para").count("</ul>") == 1
+    at_eof = notify.md_to_html("- a\n- b")  # list runs to the end of the input
+    assert at_eof.count("<li>") == 2 and at_eof.count("</ul>") == 1
+
+
+def test_notify_command_suppressed_when_notify_false(monkeypatch, tmp_path):
+    called = {"n": 0}
+    monkeypatch.setattr(
+        notify, "send", lambda *a, **k: called.__setitem__("n", called["n"] + 1)
+    )
+    notify.notify_command(
+        _cmd_run(),
+        False,  # notify disabled
+        m.BodyFormat.TEXT,
+        _email(m.EmailOn.ALWAYS),
+        "PW",
+        tmp_path,
+        "body",
+    )
+    assert called["n"] == 0
+    assert not (tmp_path / ".email-failed").exists()
+
+
+def test_notify_command_missing_password_writes_marker(tmp_path):
+    notify.notify_command(
+        _cmd_run(),
+        True,
+        m.BodyFormat.TEXT,
+        _email(m.EmailOn.ALWAYS),
+        None,  # no password
+        tmp_path,
+        "body",
+    )
+    txt = (tmp_path / ".email-failed").read_text()
+    assert "PTT_SMTP_PASSWORD" in txt
+
+
+def test_notify_command_retries_then_marker(monkeypatch, tmp_path):
+    calls = {"n": 0}
+
+    def always_fail(*a, **k):
+        calls["n"] += 1
+        raise RuntimeError("nope")
+
+    monkeypatch.setattr(notify, "send", always_fail)
+    notify.notify_command(
+        _cmd_run(),
+        True,
+        m.BodyFormat.TEXT,
+        _email(m.EmailOn.ALWAYS),
+        "PW",
+        tmp_path,
+        "b",
+    )
+    assert calls["n"] == 2
+    assert (tmp_path / ".email-failed").is_file()
+
+
+def test_notify_command_markdown_renders_html(monkeypatch, tmp_path):
+    captured = {}
+    monkeypatch.setattr(
+        notify,
+        "send",
+        lambda subj, text, html, cfg, pw: captured.update(text=text, html=html),
+    )
+    notify.notify_command(
+        _cmd_run(),
+        True,
+        m.BodyFormat.MARKDOWN,
+        _email(m.EmailOn.ALWAYS),
+        "PW",
+        tmp_path,
+        "## Heading\nbody",
+    )
+    assert "<h2" in captured["html"]  # markdown rendered, not <pre>-wrapped
+    assert "## Heading" in captured["text"]  # plain-text alternative keeps the source

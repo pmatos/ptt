@@ -7,6 +7,7 @@ import contextlib
 import os
 import shutil
 import sys
+from pathlib import Path
 
 from ptt import config, ghcheck, git_ops, logstore, netcheck, notify, runner, schedule
 from ptt import models as m
@@ -18,6 +19,8 @@ def _cmd_run(args) -> int:
     schedule.apply_baked_path()
     cfg = config.load_global_config()
     routine = config.load_routine(args.routine, cfg)
+    if isinstance(routine, m.CommandRoutine):
+        return _run_command_routine(routine, cfg, args)
     # Fail fast (before any clone or gh call) if gh is missing/logged out, rather
     # than dying deep in the run with "gh snapshot failed" or hanging on git's own
     # `Username for 'https://github.com'` prompt. Only when the run will actually
@@ -32,6 +35,21 @@ def _cmd_run(args) -> int:
     print(notify.build_subject(run))
     print(notify.build_text(run))
     return runner.exit_code(run)
+
+
+def _run_command_routine(routine: m.CommandRoutine, cfg, args) -> int:
+    # A command routine does no GitHub work, so `--project` is meaningless and the gh
+    # preflight is skipped entirely.
+    if args.project:
+        print("error: --project is not valid for a command routine", file=sys.stderr)
+        return 2
+    run = runner.run_command_routine(routine, cfg, force=args.force)
+    print(notify.build_command_subject(run))
+    if run.run_dir:
+        stdout = logstore.command_stdout_path(Path(run.run_dir))
+        if stdout.is_file():
+            print(stdout.read_text(errors="replace"), end="")
+    return runner.command_exit_code(run)
 
 
 def _cmd_list(args) -> int:
@@ -77,7 +95,16 @@ def _cmd_logs(args) -> int:
     run_json = rd / "run.json"
     if run_json.is_file():
         print(run_json.read_text())
-    if args.project:
+    # A command run has no projects/ subtree; its output lives beside run.json.
+    # Command stdout/stderr are arbitrary bytes, so decode leniently (matching the
+    # runner) — a non-UTF-8 log must never make `ptt logs` crash.
+    if (rd / "command.stdout.log").is_file():
+        for fn in ("command.txt", "command.stdout.log", "command.stderr.log"):
+            f = rd / fn
+            if f.is_file():
+                print(f"\n--- {fn} ---")
+                print(f.read_text(errors="replace"))
+    elif args.project:
         pdir = rd / "projects" / args.project
         for fn in ("git.log", "claude.stderr.log", "claude.stdout.jsonl"):
             f = pdir / fn
@@ -124,26 +151,62 @@ def _cmd_doctor(args) -> int:
         print(f"{'✓' if passed else '✗'} {label}" + (f" — {detail}" if detail else ""))
         ok = ok and passed
 
-    for tool in ("claude", "git", "gh"):
-        check(f"{tool} on PATH", shutil.which(tool) is not None)
-    gh_authed = bool(shutil.which("gh")) and runner_proc(["gh", "auth", "status"]) == 0
-    check("gh authenticated", gh_authed)
+    def info(label, passed, detail=""):
+        # Reported for context but does not gate the exit code.
+        print(f"{'✓' if passed else '·'} {label}" + (f" — {detail}" if detail else ""))
 
+    cfg = None
+    cfg_error = None
+    routines: dict[str, m.Routine | m.CommandRoutine | config.ConfigError] = {}
     try:
         cfg = config.load_global_config()
+    except config.ConfigError as e:
+        cfg_error = e
+    if cfg is not None:
+        for name in config.list_routine_names():
+            try:
+                routines[name] = config.load_routine(name, cfg)
+            except config.ConfigError as e:
+                routines[name] = e
+
+    # claude/git/gh are only needed by project routines. If none are configured (a
+    # command-only install) they're reported for context but don't fail doctor. When
+    # config itself failed to load we can't tell, so require them (conservative).
+    needs_git_tools = cfg is None or any(
+        isinstance(r, m.Routine) for r in routines.values()
+    )
+    tool_check = check if needs_git_tools else info
+    for tool in ("claude", "git", "gh"):
+        tool_check(f"{tool} on PATH", shutil.which(tool) is not None)
+    if needs_git_tools:
+        gh_authed = (
+            bool(shutil.which("gh")) and runner_proc(["gh", "auth", "status"]) == 0
+        )
+        check("gh authenticated", gh_authed)
+
+    if cfg is None:
+        check("global config loads", False, str(cfg_error))
+    else:
         check("global config loads", True)
         if cfg.email.smtp_username:
             pw = os.environ.get(cfg.email.smtp_password_env)
             smtp_password_missing = not pw
             check(f"smtp password (${cfg.email.smtp_password_env})", bool(pw))
-        for name in config.list_routine_names():
-            try:
-                config.load_routine(name, cfg)
-                check(f"routine {name}", True)
-            except config.ConfigError as e:
-                check(f"routine {name}", False, str(e))
-    except config.ConfigError as e:
-        check("global config loads", False, str(e))
+        for name, r in routines.items():
+            if isinstance(r, config.ConfigError):
+                check(f"routine {name}", False, str(r))
+                continue
+            check(f"routine {name}", True)
+            if isinstance(r, m.CommandRoutine):
+                exe = r.command[0]
+                # os.access(X_OK), not is_file: a path that exists but isn't
+                # executable would pass here yet fail at Popen with PermissionError.
+                found = shutil.which(exe) is not None or os.access(exe, os.X_OK)
+                check(
+                    f"routine {name} command",
+                    found,
+                    "" if found else f"{exe} not found or not executable",
+                )
 
     if smtp_password_missing:
         env_file = config.env_file_path()

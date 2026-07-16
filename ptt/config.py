@@ -172,7 +172,41 @@ def load_global_config() -> m.GlobalConfig:
     return m.GlobalConfig(email=email_cfg, defaults=defaults)
 
 
-def load_routine(name: str, global_cfg: m.GlobalConfig) -> m.Routine:
+def _command_routine(name: str, data: dict, dflt: m.Defaults) -> m.CommandRoutine:
+    """Build a projectless command routine. `command` is an argv array (no shell);
+    each element is `~`-expanded like `prompt`/`projects` are elsewhere."""
+    raw = data.get("command")
+    if not isinstance(raw, list) or not raw:
+        raise ConfigError(
+            f"routine {name!r} 'command' must be a non-empty array of strings"
+        )
+    if not all(isinstance(a, str) for a in raw):
+        raise ConfigError(f"routine {name!r} 'command' must contain only strings")
+    command = [os.path.expanduser(a) for a in raw]
+
+    schedule = data.get("schedule")
+    if not schedule:
+        raise ConfigError(f"routine {name!r} missing 'schedule'")
+
+    work_dir = (
+        Path(str(data["work_dir"])).expanduser()
+        if "work_dir" in data
+        else dflt.work_dir
+    )
+    return m.CommandRoutine(
+        name=name,
+        description=data.get("description", ""),
+        enabled=bool(data.get("enabled", True)),
+        schedule=str(schedule),
+        command=command,
+        work_dir=work_dir,
+        timeout_minutes=int(data.get("timeout_minutes", dflt.timeout_minutes)),
+        body_format=_enum(m.BodyFormat, data.get("body_format", "text"), "body_format"),
+        notify=bool(data.get("notify", True)),
+    )
+
+
+def load_routine(name: str, global_cfg: m.GlobalConfig) -> m.Routine | m.CommandRoutine:
     path = routines_dir() / f"{name}.toml"
     data = _load_toml(path)
     dflt = global_cfg.defaults
@@ -184,6 +218,15 @@ def load_routine(name: str, global_cfg: m.GlobalConfig) -> m.Routine:
         )
     if not _NAME_RE.match(name):
         raise ConfigError(f"routine name {name!r} must match {_NAME_RE.pattern}")
+
+    # A routine is either a command routine or a project routine — never both.
+    if "command" in data and "projects" in data:
+        raise ConfigError(
+            f"routine {name!r} sets both 'command' and 'projects'; a routine is a "
+            f"command routine or a project routine, not both"
+        )
+    if "command" in data:
+        return _command_routine(name, data, dflt)
 
     if "prompt" not in data:
         raise ConfigError(f"routine {name!r} missing 'prompt'")

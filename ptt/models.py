@@ -61,6 +61,11 @@ class Source(StrEnum):
     GH = "gh"
 
 
+class BodyFormat(StrEnum):
+    TEXT = "text"
+    MARKDOWN = "markdown"
+
+
 @dataclass
 class EmailConfig:
     from_addr: str
@@ -119,6 +124,24 @@ class Routine:
     api_max_retries: int = DEFAULT_MAX_API_RETRIES
     api_retry_base_seconds: float = DEFAULT_RETRY_BASE_S
     api_retry_cap_seconds: float = DEFAULT_RETRY_CAP_S
+
+
+@dataclass
+class CommandRoutine:
+    """A projectless routine that runs a local command on a schedule and emails its
+    stdout. ptt stays a pure scheduler here — no clone, no Claude, no gh. Mutually
+    exclusive with the project-based `Routine`; the config discriminates on which of
+    `command`/`projects` the routine's TOML carries."""
+
+    name: str
+    description: str
+    enabled: bool
+    schedule: str
+    command: list[str]
+    work_dir: Path
+    timeout_minutes: int
+    body_format: BodyFormat = BodyFormat.TEXT
+    notify: bool = True
 
 
 @dataclass
@@ -185,4 +208,39 @@ class RunResult:
             "overall_status": str(self.overall_status),
             "run_dir": self.run_dir,
             "projects": [p.to_dict() for p in self.projects],
+        }
+
+
+@dataclass
+class CommandRunResult:
+    """The result of one command-routine run. A command run is strictly 1:1 (one run
+    = one command, no project fan-out), so this is a single flat record — not a
+    RunResult/ProjectResult split. The full stdout is NOT stored here; it lives in
+    the run dir's command.stdout.log."""
+
+    routine: str
+    run_id: str
+    started_at: str
+    ended_at: str
+    status: Status
+    exit_code: int
+    stdout_len: int
+    reason: str | None
+    command: list[str]
+    duration_s: float
+    run_dir: str
+
+    def to_dict(self) -> dict:
+        return {
+            "routine": self.routine,
+            "run_id": self.run_id,
+            "started_at": self.started_at,
+            "ended_at": self.ended_at,
+            "status": str(self.status),
+            "exit_code": self.exit_code,
+            "stdout_len": self.stdout_len,
+            "reason": self.reason,
+            "command": self.command,
+            "duration_s": self.duration_s,
+            "run_dir": self.run_dir,
         }
