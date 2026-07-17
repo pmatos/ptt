@@ -6,23 +6,25 @@ STATUS_CMD = ["gh", "auth", "status", "--hostname", "github.com", "--active"]
 
 
 def _fake_run(*, token_rc=0, status_rcs=(0,)):
-    """Return `(run, calls)`: a fake `run` that returns *token_rc* for the local
-    token probe and walks the *status_rcs* sequence on successive online-validation
-    probes (repeating the last entry once exhausted), plus the list of commands it
-    saw."""
+    """Return `(run, calls, status_timeouts)`: a fake `run` that returns *token_rc*
+    for the local token probe and walks the *status_rcs* sequence on successive
+    online-validation probes (repeating the last entry once exhausted), plus the list
+    of commands it saw and the `timeout=` passed to each status probe."""
     seq = list(status_rcs)
     calls: list[list[str]] = []
+    status_timeouts: list[float | None] = []
 
     def run(cmd, **kw):
         calls.append(cmd)
         if cmd == TOKEN_CMD:
             return Completed(token_rc, "", "")
         if cmd == STATUS_CMD:
+            status_timeouts.append(kw.get("timeout"))
             rc = seq.pop(0) if len(seq) > 1 else seq[0]
             return Completed(rc, "", "")
         raise AssertionError(f"unexpected command: {cmd}")
 
-    return run, calls
+    return run, calls, status_timeouts
 
 
 def _never_sleep(_dt):
@@ -30,7 +32,7 @@ def _never_sleep(_dt):
 
 
 def test_none_when_installed_and_authenticated():
-    run, calls = _fake_run(token_rc=0, status_rcs=(0,))
+    run, calls, _ = _fake_run(token_rc=0, status_rcs=(0,))
     assert (
         ghcheck.gh_problem(which=lambda _: "/usr/bin/gh", run=run, sleep=_never_sleep)
         is None
@@ -40,13 +42,13 @@ def test_none_when_installed_and_authenticated():
 
 
 def test_message_when_gh_missing():
-    run, _ = _fake_run()
+    run, _, _ = _fake_run()
     msg = ghcheck.gh_problem(which=lambda _: None, run=run)
     assert msg and "not found" in msg
 
 
 def test_does_not_probe_when_gh_missing():
-    run, calls = _fake_run()
+    run, calls, _ = _fake_run()
     ghcheck.gh_problem(which=lambda _: None, run=run)
     assert calls == []
 
@@ -55,7 +57,7 @@ def test_logged_out_when_no_token_is_stored():
     # No stored token is the one unambiguous "logged out" — it's a local read, so it
     # stays reliable even when GitHub is unreachable. It must fail fast (no retry) and
     # never bother probing online status.
-    run, calls = _fake_run(token_rc=1, status_rcs=(0,))
+    run, calls, _ = _fake_run(token_rc=1, status_rcs=(0,))
     msg = ghcheck.gh_problem(which=lambda _: "/usr/bin/gh", run=run, sleep=_never_sleep)
     assert msg and "gh auth login" in msg
     assert STATUS_CMD not in calls
@@ -65,7 +67,7 @@ def test_transient_validation_failure_is_ridden_out():
     # Token is present; online validation blips (as when the network isn't up yet
     # after the timer fires) then recovers. The preflight must retry and pass, not
     # abort on the first failure.
-    run, calls = _fake_run(token_rc=0, status_rcs=(1, 1, 0))
+    run, calls, _ = _fake_run(token_rc=0, status_rcs=(1, 1, 0))
     slept = []
     assert (
         ghcheck.gh_problem(
@@ -88,7 +90,7 @@ def test_proceeds_when_validation_never_recovers():
     # logged out. After exhausting the retry budget the preflight returns None so the
     # run proceeds — clones then fail per-project and an emailed summary is sent,
     # instead of a silent exit-2 with no email.
-    run, calls = _fake_run(token_rc=0, status_rcs=(1,))  # never succeeds
+    run, calls, _ = _fake_run(token_rc=0, status_rcs=(1,))  # never succeeds
     clock = {"t": 0.0}
     slept = []
 
@@ -106,11 +108,36 @@ def test_proceeds_when_validation_never_recovers():
     )
     assert result is None  # proceeded, did not report _LOGGED_OUT
     assert slept == [4, 4, 4]  # rode out the budget before giving up
-    assert calls.count(STATUS_CMD) == 4
+    # probes at t=0,4,8; at t=12 the deadline is spent and it stops without probing
+    assert calls.count(STATUS_CMD) == 3
+
+
+def test_each_online_probe_is_bounded_by_the_deadline():
+    # A hung `gh auth status` (GitHub accepts the connection but never replies) must
+    # not block past the budget: every probe is given the time remaining on the
+    # deadline as its subprocess timeout, so the total wait stays bounded by timeout_s
+    # even if the deadline check (only reached once run() returns) never would be.
+    run, _, status_timeouts = _fake_run(token_rc=0, status_rcs=(1,))  # never succeeds
+    clock = {"t": 0.0}
+
+    def sleep(dt):
+        clock["t"] += dt
+
+    ghcheck.gh_problem(
+        which=lambda _: "/usr/bin/gh",
+        run=run,
+        timeout_s=10,
+        interval_s=4,
+        sleep=sleep,
+        monotonic=lambda: clock["t"],
+    )
+    # remaining budget at each probe: 10 (t=0), 6 (t=4), 2 (t=8) — always a positive,
+    # shrinking bound, never None (which would be an unbounded subprocess).
+    assert status_timeouts == [10, 6, 2]
 
 
 def test_commands_are_scoped_to_the_active_github_account():
-    run, calls = _fake_run(token_rc=0, status_rcs=(0,))
+    run, calls, _ = _fake_run(token_rc=0, status_rcs=(0,))
     ghcheck.gh_problem(which=lambda _: "/usr/bin/gh", run=run, sleep=_never_sleep)
     # token probe is a local, host-scoped read; the online check is pinned to the
     # active github.com account (the one ptt's later gh calls use) so a stale

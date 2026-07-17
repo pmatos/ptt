@@ -69,8 +69,14 @@ def gh_problem(
     status = ["gh", "auth", "status", "--hostname", "github.com", "--active"]
     deadline = monotonic() + timeout_s
     while True:
-        if run(status).returncode == 0:
+        # Bound each probe by the time left on the deadline: proc.run passes it to
+        # subprocess (returning rc 124 on expiry, which we treat like any failed
+        # check), so a hung `gh` — GitHub accepts the connection but never replies —
+        # can't block the scheduled run past timeout_s. Without a per-call timeout the
+        # deadline would only be reconsidered once run() returned, i.e. never.
+        remaining = deadline - monotonic()
+        if remaining <= 0:
             return None
-        if monotonic() >= deadline:
+        if run(status, timeout=remaining).returncode == 0:
             return None
         sleep(interval_s)
