@@ -107,9 +107,43 @@ def test_proceeds_when_validation_never_recovers():
         monotonic=lambda: clock["t"],
     )
     assert result is None  # proceeded, did not report _LOGGED_OUT
-    assert slept == [4, 4, 4]  # rode out the budget before giving up
-    # probes at t=0,4,8; at t=12 the deadline is spent and it stops without probing
+    # probes at t=0,4,8; the third wait is capped to the 2s left so it never oversleeps
+    assert slept == [4, 4, 2]
+    assert sum(slept) == 10  # total wait stays within timeout_s
     assert calls.count(STATUS_CMD) == 3
+
+
+def test_wait_is_capped_so_a_slow_probe_never_overshoots_the_budget():
+    # A probe that burns the whole remaining budget (rc 124 right at the deadline) must
+    # not be followed by another interval sleep — otherwise the "best-effort timeout_s"
+    # bound would blow out to timeout_s + interval_s. The post-probe wait is capped to
+    # what's left, which here is nothing, so the loop returns without sleeping.
+    clock = {"t": 0.0}
+    slept = []
+
+    def run(cmd, **kw):
+        if cmd == TOKEN_CMD:
+            return Completed(0, "", "")
+        clock["t"] += kw[
+            "timeout"
+        ]  # a hung probe burns its whole timeout, then times out
+        return Completed(124, "", "")
+
+    def sleep(dt):
+        slept.append(dt)
+        clock["t"] += dt
+
+    result = ghcheck.gh_problem(
+        which=lambda _: "/usr/bin/gh",
+        run=run,
+        timeout_s=10,
+        interval_s=4,
+        sleep=sleep,
+        monotonic=lambda: clock["t"],
+    )
+    assert result is None
+    assert slept == []  # nothing left to wait, so no sleep tacked on
+    assert clock["t"] == 10  # never overshot timeout_s
 
 
 def test_each_online_probe_is_bounded_by_the_deadline():

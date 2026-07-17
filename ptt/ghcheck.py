@@ -79,4 +79,9 @@ def gh_problem(
             return None
         if run(status, timeout=remaining).returncode == 0:
             return None
-        sleep(interval_s)
+        # Cap the wait to the budget left, so a probe that used it all (e.g. rc 124
+        # right at the deadline) doesn't tack on another interval and push the bound
+        # out to timeout_s + interval_s; when nothing's left the loop top returns next.
+        wait = min(interval_s, deadline - monotonic())
+        if wait > 0:
+            sleep(wait)
