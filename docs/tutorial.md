@@ -368,6 +368,15 @@ Without it, a run triggered on resume would fail every clone and the summary ema
 proceed anyway rather than blocking it, so it can never turn a healthy run into a failure.
 You can exercise it by hand with `ptt wait-online` (add `--host` / `--timeout` to tune it).
 
+For the same reason, the `gh` auth preflight validates your token online only on a
+best-effort basis: a stored token that momentarily can't be validated (GitHub briefly
+unreachable) is retried for a short while and then the run proceeds regardless, rather
+than aborting with a false "not authenticated". Only a genuinely missing token — a real
+logout, which is a local check — stops the run up front. A real outage that outlasts the
+retries still surfaces as per-project clone failures: if only GitHub is unreachable the
+summary email still reaches you; a full network outage fails the email too (the same limit
+`wait-online` has), and then the failed timer unit (`systemctl --user status`) is the signal.
+
 Run that `enable-linger` line once (the only step needing sudo) so the routine fires even
 when you're not logged in. Confirm it's scheduled:
 
@@ -459,7 +468,7 @@ unattended).
 | Symptom                              | Likely cause / fix                                                    |
 |--------------------------------------|----------------------------------------------------------------------|
 | `✗ gh authenticated`                 | Run `gh auth login`.                                                  |
-| `error: gh is not authenticated` (from `ptt run`) | `gh` is logged out; run `gh auth login` (then `gh auth setup-git`). ptt fails fast here rather than hang on git's `Username for 'https://github.com'` prompt. |
+| `error: gh is not authenticated` (from `ptt run`) | No `gh` token is stored — you're logged out. Run `gh auth login` (then `gh auth setup-git`). ptt fails fast here rather than hang on git's `Username for 'https://github.com'` prompt. A *transient* GitHub/network blip while validating a stored token no longer triggers this: that online check is best-effort, so the run proceeds anyway (the resume-triggered row below covers what happens then). |
 | `ptt run` stops at `Username for 'https://github.com'` | A private repo is cloned over HTTPS with no git credentials. Run `gh auth setup-git` so git reuses your gh token. |
 | `✗ smtp password`                    | Set `PTT_SMTP_PASSWORD` (env + `~/.config/ptt/env`).                  |
 | `[email] refuses to send credentials…` | `smtp_security = "none"` with a username only works on a loopback host; use `starttls`/`ssl` for a remote host. |
