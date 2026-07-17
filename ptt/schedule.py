@@ -130,7 +130,7 @@ def validate_schedule(schedule: str) -> None:
         raise ScheduleError(f"invalid schedule {schedule!r}: {r.stderr.strip()}")
 
 
-def install(routine: m.Routine) -> str:
+def install(routine: m.Routine | m.CommandRoutine) -> str:
     _require("systemctl")
     validate_schedule(routine.schedule)
     d = units_dir()
