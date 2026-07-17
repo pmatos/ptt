@@ -18,10 +18,12 @@ def _cmd_run(args) -> int:
     schedule.apply_baked_path()
     cfg = config.load_global_config()
     routine = config.load_routine(args.routine, cfg)
-    # Fail fast (before any clone or gh call) if gh is missing/logged out, rather
-    # than dying deep in the run with "gh snapshot failed" or hanging on git's own
-    # `Username for 'https://github.com'` prompt. Only when the run will actually
-    # proceed: a disabled routine without --force does no gh work (run_routine
+    # Fail fast (before any clone or gh call) if gh is missing or has no stored token,
+    # rather than dying deep in the run with "gh snapshot failed" or hanging on git's
+    # own `Username for 'https://github.com'` prompt. A transient failure to *validate*
+    # a stored token online does NOT abort here (ghcheck retries then proceeds), so a
+    # network blip can't turn into a false "not authenticated". Only when the run will
+    # actually proceed: a disabled routine without --force does no gh work (run_routine
     # exits 0), so preflighting it would wrongly fail a paused routine.
     if routine.enabled or args.force:
         problem = ghcheck.gh_problem()
