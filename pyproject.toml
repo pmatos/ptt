@@ -19,7 +19,7 @@ dev = [
     "pytest",
     "pytest-cov",
     "ruff>=0.15.21",
-    "ty>=0.0.58",
+    "ty>=0.0.60",
 ]
 
 [tool.hatch.build.targets.wheel]
