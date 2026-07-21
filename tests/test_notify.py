@@ -137,6 +137,28 @@ def test_build_text_marks_actions_unverified_and_failures():
     assert "timeout" in text and "/log/bad" in text
 
 
+def test_build_text_error_with_claim_shows_claimed_pr():
+    # gh snapshot failed, but Claude's own claim survived reconcile() — the email
+    # should surface it instead of leaving the reader with a bare "failed" line.
+    run = _run(
+        [
+            _proj(
+                "flaky",
+                m.Status.ERROR,
+                m.Action.PR,
+                reason="gh snapshot failed",
+                log_dir="/log/flaky",
+            ),
+        ],
+        status=m.Status.ERROR,
+    )
+    text = notify.build_text(run)
+    assert "gh snapshot failed" in text
+    assert "claude claims" in text
+    assert "https://gh/pull/1" in text
+    assert "Title flaky" in text
+
+
 def test_send_starttls_logs_in_and_sends(monkeypatch):
     rec = {}
     monkeypatch.setattr(notify.smtplib, "SMTP", _fake_smtp(rec))

@@ -42,8 +42,14 @@ def build_text(run: m.RunResult) -> str:
     lines = []
     for p in run.projects:
         if p.status == m.Status.ERROR:
+            claim = (
+                f' — claude claims {p.action}: "{p.title}" {p.url}'
+                if p.url and p.action != m.Action.NONE
+                else ""
+            )
             lines.append(
-                f"❌ {p.name} — failed ({p.reason or 'error'}) — log: {p.log_dir}"
+                f"❌ {p.name} — failed ({p.reason or 'error'}){claim} — "
+                f"log: {p.log_dir}"
             )
         elif p.action == m.Action.NONE:
             lines.append(f"⏭️  {p.name} — nothing to do")

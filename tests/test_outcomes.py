@@ -81,6 +81,24 @@ def test_gh_snapshot_failure_is_error():
     assert "gh snapshot failed" in r["reason"]
 
 
+def test_gh_snapshot_failure_keeps_claimed_url_unverified():
+    # gh couldn't confirm, so the status stays ERROR — but Claude's own claim (e.g.
+    # a PR it already opened) shouldn't be discarded, or the email tells the user
+    # nothing about work that may well have succeeded.
+    r = outcomes.reconcile(claim(m.Action.PR), snap(), snap(), True, False, 0, False)
+    assert r["action"] == m.Action.PR
+    assert r["url"] == "u"
+    assert r["title"] == "t"
+    assert r["verified"] is False
+
+
+def test_gh_snapshot_failure_no_claim_stays_bare_error():
+    r = outcomes.reconcile(None, snap(), snap(), True, False, 0, False)
+    assert r["status"] == m.Status.ERROR
+    assert r["action"] == m.Action.NONE
+    assert r["url"] is None
+
+
 def test_issue_closed_confirmed():
     pre = snap(issues={5: {"url": "u5", "state": "OPEN"}})
     post = snap(issues={5: {"url": "u5", "state": "CLOSED"}})

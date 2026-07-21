@@ -91,6 +91,16 @@ def reconcile(
     if timed_out:
         return _err(m.Action.NONE, "timeout")
     if not pre_ok or not post_ok:
+        if claimed is not None:
+            # gh couldn't confirm, so this stays an error — but Claude's own claim
+            # (e.g. a PR it already opened) is still worth reporting, unverified,
+            # rather than silently discarded.
+            return _from_claim(
+                claimed,
+                verified=False,
+                reason="gh snapshot failed",
+                status=m.Status.ERROR,
+            )
         return _err(m.Action.NONE, "gh snapshot failed")
 
     new_prs = set(post["prs"]) - set(pre["prs"])
@@ -162,9 +172,9 @@ def _claim_confirmed(action, new_prs, new_issues, newly_closed) -> bool:
     )
 
 
-def _from_claim(claimed, *, verified, reason) -> dict:
+def _from_claim(claimed, *, verified, reason, status=None) -> dict:
     return {
-        "status": claimed.status,
+        "status": status or claimed.status,
         "action": claimed.action,
         "url": claimed.url,
         "title": claimed.title,
