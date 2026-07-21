@@ -478,6 +478,7 @@ unattended).
 | Action shown as `(unverified)`       | Claude claimed a PR/issue `gh` couldn't confirm — check `git.log`.    |
 | Project `failed (claude exited 1)` with a `529`/overload in `claude.stdout.jsonl` | Anthropic's API was overloaded. ptt already retries these with backoff (see `claude.retries.log`); if it persisted through every retry, just re-run the routine later. |
 | Project `failed (timeout)`           | Raise `timeout_minutes` for the routine.                             |
+| Project `failed (gh snapshot failed)` | ptt's own `gh pr list`/`gh issue list` check (used to verify what changed) hit an error — commonly GitHub's API rate limit on a long, multi-project run. This is always reported as an error, since ptt can't confirm what happened without it. If Claude had already claimed a result (e.g. it opened a PR) before the snapshot failed, the email includes a `claude claims …` line with that unverified claim — check `git.log` and the claimed URL before assuming nothing happened. |
 | `No such file or directory: 'claude'` under the timer | The unit's baked `PATH` is stale or predates this fix — re-run `ptt install <routine>` from a shell where `claude` is on `PATH`. (A `PATH=` line in `~/.config/ptt/env` no longer breaks this: the baked value lives under `PTT_PATH` and `ptt run` merges it in, so it wins regardless.) |
 | Timer never fires while logged out   | Run `sudo loginctl enable-linger <you>`.                              |
 
