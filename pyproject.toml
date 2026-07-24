@@ -15,7 +15,7 @@ ptt = "ptt.cli:main"
 
 [dependency-groups]
 dev = [
-    "hypothesis>=6.156.6",
+    "hypothesis>=6.161.2",
     "pytest",
     "pytest-cov",
     "ruff>=0.15.22",
