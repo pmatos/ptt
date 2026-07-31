@@ -6,8 +6,12 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    commit-message:
+      prefix: ci
   # Dev tooling (pytest, ruff, ty, hypothesis, pytest-cov) in the uv dev group.
   - package-ecosystem: uv
     directory: "/"
     schedule:
       interval: weekly
+    commit-message:
+      prefix: chore
