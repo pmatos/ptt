@@ -2,6 +2,13 @@
 
 [![CI](https://github.com/pmatos/ptt/actions/workflows/ci.yml/badge.svg)](https://github.com/pmatos/ptt/actions/workflows/ci.yml)
 
+**Archived.** ptt is no longer maintained. Its routine (prompt + schedule) model
+continues in [Symphonika](https://github.com/pmatos/symphonika), which replaces ptt's
+throwaway-clone-and-run loop with issue-triggered dispatch, multi-provider support
+(Claude, Codex, Oh My Pi), and workflow fan-out — see Symphonika's
+[routine design docs](https://github.com/pmatos/symphonika/tree/main/docs/adr) for the
+successor architecture.
+
 Run a Markdown prompt through [Claude Code](https://claude.com/claude-code) against
 one or more git projects on a schedule, let Claude open PRs/issues via `gh`, and get
 an email summary of what happened. Local, single-user, self-hosted — the DIY analogue
